@@ -26,3 +26,12 @@ credit in plain words. Built at Cal Hacks 13.0.
 - Keys live in `.env` only. Never commit `.env`.
 - Money is in US dollars, rounded to cents only when displayed.
 - Keep functions small and tested. Run `pytest` in `server/` before committing.
+
+## Rules for the app (app/)
+
+- Before using any API endpoint, curl it against the running server and use the exact response fields. Never guess field names.
+  Example: `curl -s -X POST http://localhost:5001/api/pick -H "Content-Type: application/json" -d '{"merchant":"Whole Foods","amount":84.5}' | python3 -m json.tool`
+- Keep the types in `app/api.ts` matching the real responses.
+- Money and number formatting must never crash on missing values. Show "—" instead.
+- The server URL lives only in `app/config.ts`.
+- Test in the browser after every change. LayoutAnimation does not animate on web; that is expected, so don't change it.
