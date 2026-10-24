@@ -24,6 +24,7 @@ from uagents_core.identity import Identity  # noqa: E402
 
 import api_client  # noqa: E402
 import card_scorer  # noqa: E402
+import agent_timeouts  # noqa: E402
 import local_routing  # noqa: E402
 import x402_config  # noqa: E402
 from messages import CardSummary, ResolveRequest, ResolveResponse, ScoreRequest, ScoreResponse  # noqa: E402
@@ -32,9 +33,8 @@ from seeds import require_seed  # noqa: E402
 CARD_SCORER_PORT = local_routing.port("card-scorer")
 MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(require_seed("MERCHANT_RESOLVER_SEED"), 0).address
 
-# With x402 on, the Resolver may pay for a lookup first (sign, verify,
-# settle on Base Sepolia: ~2-5s), so wait longer. Off: unchanged.
-RESOLVER_TIMEOUT_SECONDS = 10 if x402_config.load().enabled else 4
+# 7s with x402 on (the Resolver may pay for a lookup first), else 4s.
+RESOLVER_TIMEOUT_SECONDS = agent_timeouts.resolver_wait_seconds(x402_config.load().enabled)
 
 agent = Agent(
     name="card-scorer",

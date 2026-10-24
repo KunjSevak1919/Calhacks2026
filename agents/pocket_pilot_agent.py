@@ -27,10 +27,12 @@ from uagents_core.contrib.protocols.chat import (  # noqa: E402
 )
 from uagents_core.identity import Identity  # noqa: E402
 
+import agent_timeouts  # noqa: E402
 import api_client  # noqa: E402
 import dispatch  # noqa: E402
 import local_routing  # noqa: E402
 import messages  # noqa: E402
+import x402_config  # noqa: E402
 from seeds import require_seed  # noqa: E402
 
 # Single-hop reads (due_soon, impact, resolve_merchant direct) can afford to
@@ -43,7 +45,8 @@ from seeds import require_seed  # noqa: E402
 # its reply just arrived late. See SpecialistDelegate.execute_action for the
 # "did it already happen?" check that replaces blindly retrying on timeout.
 READ_TIMEOUT_SECONDS = 5
-SCORE_READ_TIMEOUT_SECONDS = 10
+# 15s with x402 on (Card Scorer may wait on a paid Resolver lookup), else 10s.
+SCORE_READ_TIMEOUT_SECONDS = agent_timeouts.scorer_wait_seconds(x402_config.load().enabled)
 WRITE_TIMEOUT_SECONDS = 15
 
 AGENT_PORT = local_routing.port("pocket-pilot")
