@@ -68,6 +68,14 @@ def test_pick_success(monkeypatch):
     assert "Travel Plus" in reply
 
 
+def test_pick_mentions_store_note_briefly(monkeypatch):
+    storage = FakeStorage()
+    pick_with_note = {**PICK_RESULT, "store": {"note": "Warehouse club, not grocery"}}
+    monkeypatch.setattr(api_client, "pick", lambda **kw: pick_with_note)
+    reply = run(dispatch.build_reply("alice", "use at Costco for $42", storage))
+    assert "(Warehouse club, not grocery.)" in reply
+
+
 def test_pick_api_down(monkeypatch):
     storage = FakeStorage()
 
@@ -365,3 +373,46 @@ def test_confirm_no_treats_not_found_error_as_already_handled():
     reply = run(dispatch.build_reply("alice", "no", storage, delegate=NotFoundDelegate()))
     assert "Okay" in reply
     assert dispatch.get_pending(storage, "alice") is None
+
+
+# ---------- "what kind of store is X" -- Merchant Resolver chat intent ----------
+
+def test_store_kind_with_note():
+    storage = FakeStorage()
+    delegate = FakeDelegate(resolve_merchant_result={
+        "category": "warehouse_club", "label": "Warehouse club", "mcc": "5300",
+        "confidence": 0.9, "source": "known_merchant", "note": "Warehouse club, not grocery"})
+    reply = run(dispatch.build_reply("alice", "What kind of store is Costco?", storage, delegate=delegate))
+    assert reply == "Costco: Warehouse club, not grocery."
+    assert delegate.calls == [("resolve_merchant", "Costco")]
+
+
+def test_store_kind_without_note():
+    storage = FakeStorage()
+    delegate = FakeDelegate(resolve_merchant_result={
+        "category": "grocery", "label": "Grocery store", "mcc": "5411",
+        "confidence": 0.9, "source": "known_merchant", "note": None})
+    reply = run(dispatch.build_reply("alice", "what type of store is Whole Foods", storage, delegate=delegate))
+    assert reply == "Whole Foods is a grocery store."
+
+
+def test_store_kind_unknown_merchant():
+    storage = FakeStorage()
+    delegate = FakeDelegate(resolve_merchant_result={
+        "category": "unknown", "label": "Unknown", "mcc": None, "confidence": 0.3,
+        "source": "none", "note": None})
+    reply = run(dispatch.build_reply("alice", "what kind of store is Bob's Shop", storage, delegate=delegate))
+    assert reply == "I'm not sure what kind of store Bob's Shop is."
+
+
+def test_store_kind_resolver_down_still_answers_via_fallback(monkeypatch):
+    storage = FakeStorage()
+    pick_result = {"best": {"name": "x"}, "ranked": [{"name": "x"}],
+                   "store": {"category": "warehouse_club", "label": "Warehouse club", "mcc": "5300",
+                             "confidence": 0.9, "source": "known_merchant",
+                             "note": "Warehouse club, not grocery"}}
+    monkeypatch.setattr(api_client, "pick", lambda **kw: pick_result)
+    delegate = TimeoutThenDirectDelegate()
+    reply = run(dispatch.build_reply("alice", "what kind of store is Costco", storage, delegate=delegate))
+    assert reply == "Costco: Warehouse club, not grocery."
+    assert delegate.specialist_attempts == 1

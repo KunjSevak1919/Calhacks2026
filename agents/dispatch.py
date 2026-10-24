@@ -60,6 +60,14 @@ class DirectDelegate:
     async def impact(self, request_id):
         return api_client.impact()
 
+    async def resolve_merchant(self, request_id, merchant):
+        """No standalone "resolve" endpoint exists on the server, so this
+        reuses /api/pick (amount=0.0 is harmless -- pick() is a pure
+        computation, not a mutation) purely to read back its "store" field,
+        same read-only reuse pattern as everywhere else in this file."""
+        result = api_client.pick(merchant=merchant, amount=0.0)
+        return result.get("store")
+
 
 # ---------- storage helpers (works with any .get(key)/.set(key, value) store,
 # e.g. ctx.storage from uagents, or a plain dict-backed fake in tests) ----------
@@ -114,6 +122,9 @@ def format_pick(result, merchant, amount):
     reply = result.get("reason") or f"Use your {best['name']} ({best['rate_label']})."
     if len(ranked) > 1:
         reply += f" Runner-up: {ranked[1]['name']}."
+    note = (result.get("store") or {}).get("note")
+    if note:
+        reply += f" ({note}.)"
     return reply
 
 
@@ -313,6 +324,24 @@ async def handle_impact(delegate):
     return result.get("message") or str(result)
 
 
+async def handle_store_kind(parsed, delegate):
+    merchant = parsed.get("merchant")
+    if not merchant:
+        return "Which store do you mean?"
+    request_id = str(uuid.uuid4())
+    try:
+        store = await delegate.resolve_merchant(request_id, merchant)
+    except api_client.ApiError as e:
+        return str(e)
+    if not store or not store.get("mcc"):
+        return f"I'm not sure what kind of store {merchant} is."
+    note = store.get("note")
+    if note:
+        return f"{merchant}: {note}."
+    label = store.get("label") or "a store"
+    return f"{merchant} is a {label.lower()}."
+
+
 def handle_coach(question):
     try:
         result = api_client.ask_coach(question)
@@ -358,6 +387,8 @@ async def build_reply(sender, text, storage, delegate=None):
         return await handle_pay(parsed, delegate)
     if intent == "impact":
         return await handle_impact(delegate)
+    if intent == "store_kind":
+        return await handle_store_kind(parsed, delegate)
     if intent == "coach":
         return handle_coach(parsed.get("question") or text)
     if intent == "reset_demo":

@@ -23,6 +23,9 @@ MERCHANT_AT_RE = re.compile(
 CARD_WITH_RE = re.compile(
     r"\bwith\s+(?:my\s+)?([A-Za-z0-9&'.\- ]+?)(?=[.,!?]|$)", re.IGNORECASE
 )
+STORE_KIND_RE = re.compile(
+    r"what\s+(?:kind|type)\s+of\s+store\s+is\s+(.+?)[.,!?]*$", re.IGNORECASE
+)
 
 YES_WORDS = {"yes", "y", "yep", "yeah", "approve", "do it", "confirm", "ok", "okay", "sure"}
 NO_WORDS = {"no", "n", "nope", "later", "not now", "skip", "cancel", "dismiss"}
@@ -110,6 +113,10 @@ def parse_intent(text, has_pending=False):
     if any(w in low for w in NOTIF_WORDS):
         return {"intent": "notifications", "raw": t}
 
+    m = STORE_KIND_RE.search(t)
+    if m:
+        return {"intent": "store_kind", "merchant": m.group(1).strip().rstrip(STRIP_CHARS), "raw": t}
+
     amount = _extract_amount(t)
     merchant = _extract_merchant(t)
     if amount is not None and (merchant or "mcc" in low):
@@ -144,7 +151,7 @@ def parse_intent_llm(text):
         "Classify this message from a user talking to their credit card assistant. "
         "Reply with ONLY strict JSON, no prose, matching this shape: "
         '{"intent": one of ["pick","debt_guard_on","debt_guard_off","notifications",'
-        '"confirm_yes","confirm_no","pay","impact","coach","reset_demo","help","unknown"],'
+        '"confirm_yes","confirm_no","pay","impact","store_kind","coach","reset_demo","help","unknown"],'
         '"merchant": string or null, "amount": number or null, "question": string or null}. '
         f"Message: {text!r}"
     )

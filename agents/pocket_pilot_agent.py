@@ -1,6 +1,6 @@
-"""Pocket Pilot Fetch.ai agent: Agent Chat Protocol + REST, backed by two
-specialist agents (Card Scorer, Payment Planner) with a direct-Flask-API
-fallback when a specialist doesn't answer within SPECIALIST_TIMEOUT_SECONDS.
+"""Pocket Pilot Fetch.ai agent: Agent Chat Protocol + REST, backed by three
+specialist agents (Card Scorer, Payment Planner, Merchant Resolver) with a
+direct-Flask-API fallback when a specialist doesn't answer in time.
 
 Run: python pocket_pilot_agent.py  (with server/app.py already running)
 
@@ -31,26 +31,32 @@ import api_client  # noqa: E402
 import dispatch  # noqa: E402
 import messages  # noqa: E402
 
-# Reads (score_pick, due_soon, impact) can afford to retry freely, so they
-# stay snappy. Writes (execute_action, pay) get longer because the Agentverse
-# mailbox relay can be slow, and a premature timeout there is what causes a
-# double execution -- the specialist already ran the write; its reply just
-# arrived late. See SpecialistDelegate.execute_action for the "did it already
-# happen?" check that replaces blindly retrying on timeout.
+# Single-hop reads (due_soon, impact, resolve_merchant direct) can afford to
+# retry freely, so they stay snappy. score_pick is now a 2-hop chain --
+# Pocket Pilot -> Card Scorer -> Merchant Resolver -> back -- so it gets a
+# longer budget to cover both relay hops without the user ever waiting much
+# past ~10s. Writes (execute_action, pay) get longer still because the
+# Agentverse mailbox relay can be slow, and a premature timeout there is
+# what causes a double execution -- the specialist already ran the write;
+# its reply just arrived late. See SpecialistDelegate.execute_action for the
+# "did it already happen?" check that replaces blindly retrying on timeout.
 READ_TIMEOUT_SECONDS = 5
+SCORE_READ_TIMEOUT_SECONDS = 10
 WRITE_TIMEOUT_SECONDS = 15
 
 AGENT_PORT = int(os.getenv("POCKET_PILOT_PORT", os.getenv("AGENT_PORT", "8001")))
 POCKET_PILOT_SEED = os.getenv("POCKET_PILOT_SEED", os.getenv("AGENT_SEED", "pocket-pilot-dev-seed"))
 CARD_SCORER_SEED = os.getenv("CARD_SCORER_SEED", "card-scorer-dev-seed")
 PAYMENT_PLANNER_SEED = os.getenv("PAYMENT_PLANNER_SEED", "payment-planner-dev-seed")
+MERCHANT_RESOLVER_SEED = os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed")
 
 # An agent's address is derived from its seed the same way `Agent(seed=...)`
 # does internally (Identity.from_seed(seed, 0)), so Pocket Pilot can know
-# both specialists' addresses from their shared seeds -- no separate
+# every specialist's address from their shared seeds -- no separate
 # *_ADDRESS env vars to keep in sync.
 CARD_SCORER_ADDRESS = Identity.from_seed(CARD_SCORER_SEED, 0).address
 PAYMENT_PLANNER_ADDRESS = Identity.from_seed(PAYMENT_PLANNER_SEED, 0).address
+MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(MERCHANT_RESOLVER_SEED, 0).address
 
 agent = Agent(
     name="pocket-pilot",
@@ -92,14 +98,15 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         try:
             resp, _status = await self.ctx.send_and_receive(
                 CARD_SCORER_ADDRESS, req, response_type=messages.ScoreResponse,
-                timeout=READ_TIMEOUT_SECONDS)
+                timeout=SCORE_READ_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Card Scorer answered via agent message")
             ranked = [_card_dict(c) for c in resp.ranked]
             return {"best": _card_dict(resp.best), "ranked": ranked, "reason": resp.reason,
-                    "store": {"category": resp.category, "mcc": resp.mcc, "confidence": resp.confidence}}
+                    "store": {"category": resp.category, "mcc": resp.mcc, "confidence": resp.confidence,
+                              "source": resp.source, "note": resp.note}}
         self.ctx.logger.warning(f"[{request_id}] Card Scorer unreachable/timed out, "
                                  "falling back to direct API")
         return await super().score_pick(request_id, merchant, amount, debt_guard)
@@ -190,6 +197,25 @@ class SpecialistDelegate(dispatch.DirectDelegate):
                                  "falling back to direct API")
         return await super().impact(request_id)
 
+    async def resolve_merchant(self, request_id, merchant):
+        """Direct, single-hop call to Merchant Resolver for "what kind of
+        store is X" chat questions -- separate from Card Scorer's own
+        resolver hop inside score_pick."""
+        req = messages.ResolveRequest(request_id=request_id, merchant=merchant)
+        try:
+            resp, _status = await self.ctx.send_and_receive(
+                MERCHANT_RESOLVER_ADDRESS, req, response_type=messages.ResolveResponse,
+                timeout=READ_TIMEOUT_SECONDS)
+        except Exception:
+            resp = None
+        if resp is not None and resp.ok:
+            self.ctx.logger.info(f"[{request_id}] Merchant Resolver answered via agent message")
+            return {"category": resp.category, "mcc": resp.mcc, "confidence": resp.confidence,
+                    "source": resp.source, "note": resp.note, "label": resp.label}
+        self.ctx.logger.warning(f"[{request_id}] Merchant Resolver unreachable/timed out, "
+                                 "falling back to direct API")
+        return await super().resolve_merchant(request_id, merchant)
+
 
 chat_proto = Protocol(spec=chat_protocol_spec)
 
@@ -257,6 +283,7 @@ class HealthResponse(Model):
     api_url: str
     card_scorer_address: str
     payment_planner_address: str
+    merchant_resolver_address: str
 
 
 @agent.on_rest_get("/health", HealthResponse)
@@ -269,7 +296,8 @@ async def rest_health(ctx: Context) -> HealthResponse:
     return HealthResponse(ok=api_ok, agent_address=agent.address,
                            api_url=os.getenv("POCKET_PILOT_API_URL", api_client.DEFAULT_BASE_URL),
                            card_scorer_address=CARD_SCORER_ADDRESS,
-                           payment_planner_address=PAYMENT_PLANNER_ADDRESS)
+                           payment_planner_address=PAYMENT_PLANNER_ADDRESS,
+                           merchant_resolver_address=MERCHANT_RESOLVER_ADDRESS)
 
 
 @agent.on_rest_post("/pick", PickRequest, PickResponse)
@@ -288,4 +316,5 @@ if __name__ == "__main__":
           f"&address={agent.address}")
     print(f"Card Scorer address (from seed): {CARD_SCORER_ADDRESS}")
     print(f"Payment Planner address (from seed): {PAYMENT_PLANNER_ADDRESS}")
+    print(f"Merchant Resolver address (from seed): {MERCHANT_RESOLVER_ADDRESS}")
     agent.run()

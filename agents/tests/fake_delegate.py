@@ -9,12 +9,14 @@ class FakeDelegate:
     directly) was used, and returns whatever canned result was configured."""
 
     def __init__(self, score_pick_result=None, due_soon_result=None,
-                 execute_action_result=None, pay_result=None, impact_result=None):
+                 execute_action_result=None, pay_result=None, impact_result=None,
+                 resolve_merchant_result=None):
         self.score_pick_result = score_pick_result
         self.due_soon_result = due_soon_result
         self.execute_action_result = execute_action_result
         self.pay_result = pay_result
         self.impact_result = impact_result
+        self.resolve_merchant_result = resolve_merchant_result
         self.calls = []
 
     async def score_pick(self, request_id, merchant, amount, debt_guard=None):
@@ -36,6 +38,10 @@ class FakeDelegate:
     async def impact(self, request_id):
         self.calls.append(("impact",))
         return self.impact_result
+
+    async def resolve_merchant(self, request_id, merchant):
+        self.calls.append(("resolve_merchant", merchant))
+        return self.resolve_merchant_result
 
 
 class TimeoutThenDirectDelegate:
@@ -68,3 +74,8 @@ class TimeoutThenDirectDelegate:
     async def impact(self, request_id):
         self.specialist_attempts += 1
         return api_client.impact()
+
+    async def resolve_merchant(self, request_id, merchant):
+        self.specialist_attempts += 1
+        result = api_client.pick(merchant=merchant, amount=0.0)
+        return result.get("store")

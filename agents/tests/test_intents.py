@@ -79,6 +79,18 @@ def test_unknown_intent():
     assert parsed["intent"] == "unknown"
 
 
+def test_store_kind_intent():
+    parsed = intents.parse_intent("What kind of store is Costco?")
+    assert parsed["intent"] == "store_kind"
+    assert parsed["merchant"] == "Costco"
+
+
+def test_store_kind_intent_type_variant():
+    parsed = intents.parse_intent("what type of store is Whole Foods")
+    assert parsed["intent"] == "store_kind"
+    assert parsed["merchant"] == "Whole Foods"
+
+
 def test_llm_fallback_disabled_without_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert intents.parse_intent_llm("anything") is None
@@ -121,6 +133,12 @@ def test_mentioned_pick_still_parses_merchant_and_amount():
     assert parsed["intent"] == "pick"
     assert parsed["merchant"] == "Whole Foods"
     assert parsed["amount"] == 84.50
+
+
+def test_mentioned_store_kind_still_parses_merchant():
+    parsed = intents.parse_intent(f"{MENTION} what kind of store is Costco?")
+    assert parsed["intent"] == "store_kind"
+    assert parsed["merchant"] == "Costco"
 
 
 def test_trailing_punctuation_on_yes_still_matches():
