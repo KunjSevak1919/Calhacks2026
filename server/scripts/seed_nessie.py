@@ -1,7 +1,7 @@
 """Create the demo student in Capital One's Nessie sandbox.
 
-Run once after you get a key:
-    NESSIE_API_KEY=xxx python scripts/seed_nessie.py
+Run once after you put NESSIE_API_KEY in ../.env (repo root):
+    python scripts/seed_nessie.py
 It prints a NESSIE_CUSTOMER_ID to put in your .env.
 
 Note: written against Nessie's documented endpoints but not run yet
@@ -10,7 +10,10 @@ Note: written against Nessie's documented endpoints but not run yet
 import os
 import sys
 
+from dotenv import load_dotenv
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 from pocketpilot import data  # noqa: E402
 from pocketpilot.nessie import Nessie  # noqa: E402
@@ -19,10 +22,11 @@ ADDRESS = {"street_number": "1", "street_name": "Washington Sq", "city": "San Jo
            "state": "CA", "zip": "95192"}
 
 MERCHANTS = [
-    ("Whole Foods Market", ["grocery"], 37.3352, -121.8811),
-    ("Shell", ["gas"], 37.3301, -121.8890),
-    ("Chipotle", ["dining"], 37.3365, -121.8850),
-    ("Target", ["discount store"], 37.3270, -121.8860),
+    # Nessie rejects a list here ("category: str type expected").
+    ("Whole Foods Market", "grocery", 37.3352, -121.8811),
+    ("Shell", "gas", 37.3301, -121.8890),
+    ("Chipotle", "dining", 37.3365, -121.8850),
+    ("Target", "discount store", 37.3270, -121.8860),
 ]
 
 
@@ -34,8 +38,8 @@ def main():
     cust = n._post("/customers", {"first_name": "Demo", "last_name": "Student", "address": ADDRESS})
     cust_id = cust["objectCreated"]["_id"]
     merchant_ids = {}
-    for name, cats, lat, lng in MERCHANTS:
-        m = n._post("/merchants", {"name": name, "category": cats, "address": ADDRESS,
+    for name, category, lat, lng in MERCHANTS:
+        m = n._post("/merchants", {"name": name, "category": category, "address": ADDRESS,
                                    "geocode": {"lat": lat, "lng": lng}})
         merchant_ids[name] = m["objectCreated"]["_id"]
     for card in data.cards():

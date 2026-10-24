@@ -82,6 +82,95 @@ def test_nessie_skips_unknown_cards(monkeypatch):
     PocketPilot(profile=profile).wallet()   # must not crash
 
 
+
+def test_nessie_uses_https():
+    from pocketpilot import nessie
+    assert nessie.BASE.startswith("https://")
+
+
+def test_nessie_merchant_category_string_or_list(monkeypatch):
+    from pocketpilot import nessie
+
+    class FakeNessie:
+        enabled = True
+        def accounts(self, _):
+            return [{"type": "Credit Card", "nickname": "Aurum Gold", "balance": 700, "_id": "a1"}]
+        def purchases(self, _):
+            return [{"merchant_id": "m1"}, {"merchant_id": "m2"}, {"merchant_id": "m3"}]
+        def merchant(self, mid):
+            return {"m1": {"name": "Shell", "category": "gas"},
+                    "m2": {"name": "Chipotle", "category": ["dining"]},
+                    "m3": {"name": "Target"}}[mid]
+
+    monkeypatch.setattr(nessie, "Nessie", FakeNessie)
+    history = nessie.load_profile(customer_id="c1")["nessie_history"]
+    assert [h["categories"] for h in history] == [["gas"], ["dining"], []]
+
+
+def test_nessie_errors_hide_api_key(monkeypatch):
+    import requests
+    from pocketpilot import nessie
+
+    def refuse(method, url, params=None, **kw):
+        raise requests.ConnectionError(
+            f"Max retries exceeded with url: /customers/c1/accounts?key={params['key']}")
+
+    monkeypatch.setattr(nessie.requests, "request", refuse)
+    with pytest.raises(requests.ConnectionError) as e:
+        nessie.Nessie(key="SECRET123").accounts("c1")
+    assert "SECRET123" not in str(e.value) and "key=***" in str(e.value)
+    assert e.value.__cause__ is None and e.value.__suppress_context__
+
+
+def test_nessie_http_error_hides_api_key(monkeypatch):
+    import requests
+    from pocketpilot import nessie
+
+    class Resp:
+        status_code = 400
+        def raise_for_status(self):
+            raise requests.HTTPError(
+                "400 Client Error for url: https://api.nessieisreal.com/merchants?key=SECRET123",
+                response=self)
+
+    monkeypatch.setattr(nessie.requests, "request", lambda *a, **kw: Resp())
+    with pytest.raises(requests.HTTPError) as e:
+        nessie.Nessie(key="SECRET123")._post("/merchants", {"name": "Shell", "category": "gas"})
+    assert "SECRET123" not in str(e.value) and e.value.response.status_code == 400
+
+
+def test_nessie_sends_key_as_param(monkeypatch):
+    from pocketpilot import nessie
+    calls = []
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return []
+
+    def record(method, url, **kw):
+        calls.append((method, url, kw))
+        return Resp()
+
+    monkeypatch.setattr(nessie.requests, "request", record)
+    nessie.Nessie(key="k").accounts("c1")
+    assert calls[0][:2] == ("GET", "https://api.nessieisreal.com/customers/c1/accounts")
+    assert calls[0][2]["params"] == {"key": "k"}
+
+
+def test_seed_sends_merchant_category_as_string(monkeypatch):
+    import importlib.util
+    import os
+
+    import dotenv
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **kw: None)   # keep real keys out of tests
+    path = os.path.join(os.path.dirname(__file__), "..", "scripts", "seed_nessie.py")
+    spec = importlib.util.spec_from_file_location("seed_nessie", path)
+    seed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed)
+    assert all(isinstance(cat, str) for _, cat, _, _ in seed.MERCHANTS)
+
 def test_coach_offline(client):
     r = client.post("/api/coach", json={"question": "Why did my credit score drop?"}).get_json()
     assert r["source"] == "offline" and "Zero Intro" in r["answer"]
