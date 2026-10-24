@@ -1,0 +1,14 @@
+{
+  "_note": "SIMULATED DATA for the x402 demo. Not a real merchant database: a stand-in for a paid merchant-data provider, so Merchant Resolver has something to pay for when its own table doesn't know a store. Every response from /x402/merchant-data says so.",
+  "source": "simulated merchant directory (demo data)",
+  "confidence": 0.85,
+  "merchants": [
+    {"name": "Sakura Ramen House", "aliases": ["sakura ramen"], "mcc": "5812"},
+    {"name": "Night Owl Tacos", "aliases": ["night owl"], "mcc": "5814"},
+    {"name": "Bob's Corner Market", "aliases": ["bobs corner market", "bob's market"], "mcc": "5411"},
+    {"name": "Bear Territory Books", "aliases": ["bear territory"], "mcc": "5942"},
+    {"name": "Quik Fuel Berkeley", "aliases": ["quik fuel"], "mcc": "5541"},
+    {"name": "Golden Gate Pharmacy", "aliases": ["golden gate rx"], "mcc": "5912"},
+    {"name": "Pixel Hub Electronics", "aliases": ["pixel hub"], "mcc": "5732"}
+  ]
+}
