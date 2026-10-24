@@ -21,6 +21,7 @@ from datetime import date as _date
 import api_client
 import card_replies
 import intents
+import x402_report
 
 PENDING_TTL_SECONDS = 600  # 10 minutes
 
@@ -38,7 +39,8 @@ HELP_TEXT = (
     "- \"Anything due soon?\", then \"yes\" or \"no\"\n"
     "- \"Show my cards\" or \"How am I doing?\"\n"
     "- \"Is my Voyager fee worth it?\"\n"
-    "- \"How much have you saved me?\"\n\n"
+    "- \"How much have you saved me?\"\n"
+    "- \"How much have the agents earned?\" (Coinbase x402, test network)\n\n"
     "Understand your credit\n"
     "- \"Tell me about Aurum Gold\"\n"
     "- \"How long to pay off Aurum Gold?\" or \"What if I only pay the minimum?\"\n"
@@ -652,4 +654,6 @@ async def _route(sender, text, storage, delegate=None):
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":
         return handle_vfc_rules(storage, sender)
+    if intent == "x402_stats":
+        return x402_report.stats_reply()
     return "Not sure what you mean. Say \"help\" to see what I can do."

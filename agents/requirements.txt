@@ -7,3 +7,7 @@ pytest==8.3.3
 # Needed by merchant_resolver.py's read-only import of
 # server/pocketpilot/resolver.py, which depends on it directly.
 rapidfuzz==3.9.6
+# Coinbase x402 (optional: without CDP keys in .env these are never used).
+# coinbase-agentkit is not used: 0.7.4 pins x402<2.
+x402[flask,requests,evm]==2.25.0
+cdp-sdk==1.51.0

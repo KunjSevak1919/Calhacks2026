@@ -7,6 +7,9 @@ each line already prefixed by its own agent name (uagents' own logger does
 that), e.g. "[pocket-pilot]:", "[card-scorer]:", "[payment-planner]:",
 "[merchant-resolver]:".
 
+With x402 on (CDP keys in .env), it also starts x402_server.py, the paid
+Coinbase x402 endpoints, first -- so Merchant Resolver can pay it.
+
 Run: python run_all.py   (with server/app.py already running)
 Stop: Ctrl+C -- all four are terminated together.
 """
@@ -20,6 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import api_client  # noqa: E402
+import x402_config  # noqa: E402
 from seeds import missing_seeds  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +41,20 @@ def _check_flask():
               "still start, but every answer will say the server is unreachable.")
 
 
+def _scripts():
+    """The four agents, plus the x402 service first when x402 is on."""
+    cfg = x402_config.load()
+    print(x402_config.status_line(cfg))
+    if not cfg.enabled:
+        return SCRIPTS
+    try:
+        x402_config.require_testnet(cfg)
+    except x402_config.X402ConfigError as e:
+        print(e)
+        sys.exit(1)
+    return ["x402_server.py", *SCRIPTS]
+
+
 def main():
     missing = missing_seeds()
     if missing:
@@ -44,13 +62,14 @@ def main():
               "(a long random string, see .env.example). Not starting any agent.")
         sys.exit(1)
     _check_flask()
+    scripts = _scripts()
     procs = []
     try:
-        for script in SCRIPTS:
+        for script in scripts:
             print(f"Starting {script} ...")
             procs.append(subprocess.Popen([sys.executable, os.path.join(HERE, script)]))
             time.sleep(1)  # stagger startup so logs are easier to read
-        print("\nAll four agents starting. Press Ctrl+C to stop them.\n")
+        print(f"\nAll {len(scripts)} processes starting. Press Ctrl+C to stop them.\n")
         for p in procs:
             p.wait()
     except KeyboardInterrupt:
