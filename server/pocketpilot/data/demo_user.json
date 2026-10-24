@@ -1,0 +1,24 @@
+{
+  "_note": "Offline demo profile. Used when NESSIE_API_KEY is not set. Dates are 2026.",
+  "name": "Demo Student",
+  "today": "2026-10-23",
+  "checking_balance": 380.0,
+  "payday": { "next": "2026-10-28", "amount": 420.0, "frequency": "biweekly" },
+  "accounts": {
+    "aurum":   { "balance": 640.0, "limit": 5000.0, "due": "2026-10-30", "statement_close": "2026-11-04", "min_payment": 35.0, "rewards_ytd": 112.0 },
+    "steady":  { "balance": 310.0, "limit": 3000.0, "due": "2026-11-12", "statement_close": "2026-11-17", "min_payment": 25.0, "rewards_ytd": 64.0 },
+    "zero":    { "balance": 0.0,   "limit": 4000.0, "due": null,         "statement_close": "2026-11-20", "min_payment": 0.0,  "rewards_ytd": 0.0, "opened": "2026-09-20" },
+    "spin":    { "balance": 370.0, "limit": 2500.0, "due": "2026-11-08", "statement_close": "2026-11-13", "min_payment": 25.0, "rewards_ytd": 38.0 },
+    "voyager": { "balance": 820.0, "limit": 10000.0, "due": "2026-11-04", "statement_close": "2026-11-09", "min_payment": 30.0, "rewards_ytd": 41.0 }
+  },
+  "impact": { "rewards_this_month": 18.40, "late_fees_avoided": 39.0, "interest_avoided": 16.0 },
+  "subscriptions": [
+    { "id": "streambox", "name": "StreamBox", "amount": 15.99, "card": "steady", "next_charge": "2026-10-24", "last_used_days": 21, "trial": true },
+    { "id": "gymly", "name": "Gymly", "amount": 11.99, "card": "spin", "next_charge": "2026-11-02", "last_used_days": 64, "trial": false }
+  ],
+  "history": [
+    { "merchant": "Whole Foods Market", "mcc": "5411" },
+    { "merchant": "Costco", "mcc": "5300" },
+    { "merchant": "Blue Door Cafe", "mcc": "5812" }
+  ]
+}

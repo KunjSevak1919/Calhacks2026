@@ -1,0 +1,50 @@
+{
+  "_note": "Merchant category code -> reward category. Ranges are inclusive.",
+  "codes": {
+    "5411": { "category": "grocery", "label": "Grocery store" },
+    "5300": { "category": "warehouse_club", "label": "Warehouse club" },
+    "5310": { "category": "discount_store", "label": "Discount store" },
+    "5311": { "category": "department_store", "label": "Department store" },
+    "5912": { "category": "drugstore", "label": "Drugstore" },
+    "5541": { "category": "gas", "label": "Gas station" },
+    "5542": { "category": "gas", "label": "Automated fuel" },
+    "5812": { "category": "dining", "label": "Restaurant" },
+    "5813": { "category": "dining", "label": "Bar" },
+    "5814": { "category": "dining", "label": "Fast food" },
+    "4121": { "category": "rideshare", "label": "Taxi and rideshare" },
+    "4111": { "category": "transit", "label": "Transit" },
+    "4511": { "category": "airlines", "label": "Airline" },
+    "7011": { "category": "hotels", "label": "Hotel" },
+    "4899": { "category": "streaming", "label": "Cable and streaming" },
+    "5815": { "category": "digital", "label": "Digital media" },
+    "5732": { "category": "electronics", "label": "Electronics store" },
+    "5942": { "category": "online_retail", "label": "Book store" },
+    "5999": { "category": "online_retail", "label": "Misc. retail" }
+  },
+  "ranges": [
+    { "from": 3000, "to": 3299, "category": "airlines", "label": "Airline" },
+    { "from": 3501, "to": 3999, "category": "hotels", "label": "Hotel" }
+  ],
+  "place_types": {
+    "supermarket": "5411",
+    "grocery_store": "5411",
+    "warehouse_store": "5300",
+    "discount_store": "5310",
+    "department_store": "5311",
+    "pharmacy": "5912",
+    "drugstore": "5912",
+    "gas_station": "5541",
+    "restaurant": "5812",
+    "bar": "5813",
+    "cafe": "5814",
+    "coffee_shop": "5814",
+    "fast_food_restaurant": "5814",
+    "meal_takeaway": "5814",
+    "lodging": "7011",
+    "hotel": "7011",
+    "airport": "4511",
+    "transit_station": "4111",
+    "train_station": "4111",
+    "electronics_store": "5732"
+  }
+}
