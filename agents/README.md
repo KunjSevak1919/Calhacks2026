@@ -12,8 +12,8 @@ before it scores anything:
                               v
                      +------------------+
                      |   Pocket Pilot   |   chat protocol, intent parsing,
-                     |   (front door)   |   per-sender pending-confirmation
-                     +------------------+   store, coach, help, demo reset
+                     |   (front door)   |   per-chat pending-confirmation
+                     +------------------+   store, wallet, Visa, coach, help
                      /         |          \
        ScoreRequest /          | DueSoonRequest      \ ResolveRequest
       /ScoreResponse          | / ExecuteActionRequest \ /ResolveResponse
@@ -57,6 +57,9 @@ there's no LLM anywhere in the resolve/score path.
   or play it safe with the merchant name only) lives in `card_scorer.py`.
 - `payment_planner_agent.py` -- specialist: owns everything that changes
   money or state -- due-soon notifications, approve/dismiss, pay, impact.
+  Writes (`ExecuteActionRequest`, `PayRequest`) are accepted only from
+  Pocket Pilot's own address (derived from `POCKET_PILOT_SEED`); anyone
+  else gets `ok=False, error="unauthorized"`. Reads stay open.
 - `merchant_resolver_agent.py` -- specialist: turns a store name into a
   merchant category code (MCC), category, and confidence. A thin uagents
   wrapper around `merchant_resolver.py`, which is a read-only wrapper around
@@ -73,8 +76,14 @@ there's no LLM anywhere in the resolve/score path.
   `impact`/`resolve_merchant` methods) instead of the Flask API directly --
   `DirectDelegate` (the default) calls Flask directly; `SpecialistDelegate`
   (in `pocket_pilot_agent.py`) tries the specialist agents first.
+- `card_replies.py` -- pure formatters for the wallet, one card, payback
+  plans, annual fee checks and impact, plus `find_card()` (case-insensitive,
+  partial card names). Every number comes from the server; missing values
+  show as "—".
+- `seeds.py` -- `require_seed()`: agents refuse to start without their seed.
 - `intents.py` -- `parse_intent(text) -> dict`, deterministic first, with an
-  optional LLM fallback behind `parse_intent_llm`.
+  optional LLM fallback behind `parse_intent_llm`. Strips ASI:One's
+  `@agent1...` mention and turns curly quotes into straight ones first.
 - `api_client.py` -- `requests` wrapper around the Flask API with timeouts
   and clear errors. Shared by all four agents.
 - `run_all.py` -- starts all four agents as subprocesses with one command.
@@ -101,14 +110,19 @@ PAYMENT_PLANNER_SEED=yet-another-long-random-string
 PAYMENT_PLANNER_PORT=8003
 MERCHANT_RESOLVER_SEED=one-more-long-random-string
 MERCHANT_RESOLVER_PORT=8004
+DEMO_MODE=off        # "on" lets "reset demo" work in chat
+FLASK_DEBUG=0        # server/: 1 turns on debug + auto-reloader (a reload wipes state)
 # ANTHROPIC_API_KEY=...                    # optional, only for intent-parsing fallback
 ```
 
-Seeds deterministically derive each agent's address (`Identity.from_seed(seed, 0)`,
-confirmed from uagents' own `Agent.__init__`), so Pocket Pilot and Card
-Scorer compute specialist addresses from their seeds at startup -- no
-separate address variables to keep in sync, and nothing to copy-paste after
-a restart.
+**All four seeds are required.** There are no built-in defaults: each agent
+(and `run_all.py`, which checks all four first) refuses to start without
+its own seed. Seeds deterministically derive each agent's address
+(`Identity.from_seed(seed, 0)`, confirmed from uagents' own
+`Agent.__init__`), so Pocket Pilot and Card Scorer compute specialist
+addresses from their seeds at startup, and Payment Planner computes Pocket
+Pilot's address to know which sender may ask for writes. No separate
+address variables to keep in sync.
 
 ## Run
 
@@ -171,14 +185,21 @@ and a few real interactions logged. Set these on each agent's **Profile**
 and **README/About** tab:
 
 **Pocket Pilot** (the one users find in ASI:One):
-> Pocket Pilot picks the best credit card for a purchase, flips Debt Guard
-> on when you're carrying a balance, reminds you about due dates and
-> subscriptions before they cost you, and explains credit in plain words --
-> built for college students with more than one card. Every action it
-> takes needs your "yes" first.
+> Your whole credit card wallet, in chat. Built for college students with
+> more than one card. Ask which card to use at any store, or how to pay
+> with Visa Flexible Credential (credit, debit or installments, simulated).
+> Turn on Debt Guard when you're carrying a balance and it stops picking
+> cards that would charge you interest. See every card's balance, usage,
+> APR and due date. Find out how long a balance takes to pay off on the
+> minimum, whether an annual fee is worth it, and what's due soon. Approve
+> a payment or cancel a subscription with a "yes". Ask any credit question
+> in plain words. Every number comes from a real rewards-vs-interest
+> engine, not an LLM. Nothing is paid or canceled without your "yes", and
+> it never suggests opening new cards. Say "help" to see everything.
 
 Keywords: `credit card`, `which card`, `students`, `debt`, `due dates`,
-`rewards`, `personal finance`, `debt guard`.
+`rewards`, `personal finance`, `debt guard`, `visa flexible credential`,
+`annual fee`, `pay off credit card`, `credit utilization`.
 
 **Card Scorer** (discoverable by other agents, not meant for chat):
 > Scores a student's credit cards for a given purchase (merchant + amount)
@@ -191,8 +212,9 @@ Keywords: `card scoring`, `rewards`, `cashback`, `merchant category`,
 
 **Payment Planner** (discoverable, not meant for chat):
 > Tracks a student's due dates, subscriptions, and annual fees, and
-> executes approve/pay/dismiss actions -- but only when explicitly told to
-> by a trusted front-door agent on behalf of a user who said "yes."
+> executes approve/pay/dismiss actions, but only for Pocket Pilot, on
+> behalf of a user who said "yes". Write requests from any other agent are
+> refused as unauthorized; due-soon and impact reads are open.
 
 Keywords: `due dates`, `bill reminders`, `subscriptions`, `payments`,
 `personal finance automation`.
@@ -210,31 +232,89 @@ Send each agent a handful of test messages from its **Testing** dashboard
 (~10 interactions, per the setup guide) so it has activity before judges
 search for it.
 
-## Chat with it in ASI:One
+## Use it entirely in ASI:One
 
-Open [asi1.ai](https://asi1.ai), search "Pocket Pilot" or one of its
-keywords, and start a conversation.
+Everything the phone app does works in ASI:One chat. You don't need the
+app. Open [asi1.ai](https://asi1.ai), search "Pocket Pilot" (or a keyword
+above), and start a conversation. @-mentions (`@agent1... yes`) and curly
+quotes (“ ” ’) are handled. Replies are short plain text, no tables.
 
-### Example prompts
+| App screen | Say this in ASI:One | Reply comes from |
+|---|---|---|
+| Home: cards, usage, Debt Guard | "Show my cards" / "How am I doing?" | `GET /api/wallet` |
+| Home: one card | "Tell me about Aurum Gold" (or just "aurum") | `GET /api/wallet` (incl. `usage_tip`) |
+| Home: payback plan | "How long to pay off Aurum Gold?" / "What if I only pay the minimum?" | `GET /api/payback/<card>` |
+| Home: impact chips | "How much have you saved me?" | `/api/impact`, else the wallet's `impact` |
+| Home: Debt Guard toggle | "I'm carrying a balance" / "Turn off Debt Guard" | `POST /api/settings`, then re-answers your last purchase question |
+| Pick | "Which card should I use at Whole Foods for $84.50?" | Card Scorer -> Merchant Resolver -> `POST /api/pick` |
+| Pick: store type | "What kind of store is Costco?" | Merchant Resolver |
+| Visa Flexible (simulated) | "How should I pay at Best Buy for $600?" | `POST /api/vfc/authorize` |
+| Visa Flexible rules | "Show my Visa rules" | `GET /api/vfc/rules` (says which rule applies now) |
+| Alerts | "Anything due soon?" then "yes" / "no" | Payment Planner -> `/api/notifications` |
+| Alerts: annual fee | "Is my Voyager fee worth it?" | the `annual_fee` notification's data (advice only) |
+| Coach | "Why did my score drop?" / "Tell me about credit scores" | `POST /api/coach` |
+| Everything | "help" | grouped list: Pay smart / Never miss a deadline / Understand your credit |
 
+Card names match case-insensitively and partially ("aurum", "zero intro",
+"voyager"). An unknown name gets a list of your cards. "What if I only pay
+the minimum?" uses the card you last asked about.
+
+### Example prompts, by feature
+
+Pay smart
 - "Which card should I use at Whole Foods for $84.50?"
 - "What kind of store is Costco?"
-- "I'm carrying a balance" / "turn on debt guard"
-- "Anything due soon?"
-- "yes" / "no" (only right after the agent asks)
-- "I paid at Whole Foods $84.50 with Zero Intro"
+- "How should I pay at Whole Foods for $84.50?"
+- "How should I pay at Best Buy for $600?"
+- "Show my Visa rules"
+- "I'm carrying a balance" -> re-answers your last pick or Visa question
+- "Turn off Debt Guard"
+
+Never miss a deadline
+- "Anything due soon?" -> "Reply yes to schedule $640 to Aurum Gold on Oct 29."
+- "yes" / "no" (only right after it asks; only the person who was asked can answer)
+- "Show my cards" / "How am I doing?"
+- "Is my Voyager fee worth it?"
 - "How much have you saved me?"
+
+Understand your credit
+- "Tell me about Aurum Gold"
+- "How long to pay off Aurum Gold?"
+- "What if I only pay the minimum?"
 - "Why did my score drop?"
-- "reset demo"
 - "help"
 
-## Known gap: 4 endpoints not on this server branch yet
+Demo only (`DEMO_MODE=on`): "reset demo".
 
-`server/app.py` on this branch doesn't have `/api/pay`, `/api/impact`,
-`/api/log`, or `/api/demo/reset`. The `pay`, `impact`, and `reset demo`
-intents are fully wired through Payment Planner and `api_client.py` --
-they'll just reply "isn't available on this server yet" until those routes
-exist in `server/`. No agent code needs to change when they land.
+### Safety in chat
+
+- Pending approvals and the last purchase question are keyed by
+  `f"{sender}:{session}"`: someone else in the same session can't say yes
+  for you.
+- Pocket Pilot says "Done" only when the write worked, or the server says
+  it's already done (`not_found`). Any other failure replies "I couldn't do
+  that, so nothing was paid. Try again." and keeps the action pending.
+- Annual fee checks and payback plans are advice only. Nothing to approve.
+
+### Not supported: proactive reminders
+
+Pocket Pilot only replies; it never messages you first. uagents can send
+from an interval handler (`on_interval(..., messages=ChatMessage)`,
+`InternalContext.send` in `uagents/context.py`), but an interval context
+gets a fresh random session (`Agent._build_context`), and Fetch's ASI:One
+docs only describe agents replying to a user's message. Nothing confirms
+that ASI:One shows a message the user didn't prompt. Ask "anything due
+soon?" instead.
+
+## Known gaps on this server branch
+
+`server/app.py` doesn't have `/api/pay`, `/api/impact`, `/api/log`, or
+`/api/demo/reset`.
+- "How much have you saved me?" falls back to `/api/wallet`'s `impact`.
+- "I paid $40 at Target" replies "I couldn't do that, so nothing was paid"
+  until `/api/pay` exists, so it's left out of "help".
+- "reset demo" needs `DEMO_MODE=on` *and* `/api/demo/reset`. Until then,
+  restart `server/app.py` to reset (state is in memory).
 
 ## 60-second "behind the scenes" script for judges
 
@@ -266,22 +346,75 @@ exist in `server/`. No agent code needs to change when they land.
    Say: "No agent moves money or changes settings without that explicit
    yes, and it only works for the person who was actually asked."
 
-## Demo script (full flow)
+## 3-minute demo, ASI:One only
 
-1. **Link**: start Flask (`server/app.py`), start all four agents
-   (`python run_all.py`), open each Inspector link, click Connect -> Mailbox.
-2. **Pick**: send `Which card should I use at Whole Foods for $84.50?` ->
-   best card, one-line reason, runner-up.
-3. **Store category**: send `What kind of store is Costco?` -> "Costco:
-   Warehouse club, not grocery."
-4. **Debt Guard flip**: send `I'm carrying a balance` -> "Debt Guard is on.
-   Use <card> instead. <other card> would earn $X, but its Y% APR would
-   cost $Z over 3 months."
-5. **Due soon**: send `Anything due soon?` -> top alert summarized, ending
-   with the exact action: "Reply yes to schedule $640 to Aurum Gold on
-   Oct 29."
-6. **Yes**: send `yes` -> "Done. Scheduled $640 to Aurum Gold on Oct 29."
-   then offers the next alert the same way.
-7. **Impact**: send `How much have you saved me?` -> replies with the
-   impact number once `/api/impact` exists on `server/`; today it replies
-   that the endpoint isn't available yet.
+No phone app. Before you start: `server/app.py` running (`FLASK_DEBUG=0`),
+`python run_all.py` running with all four seeds set, Pocket Pilot's mailbox
+connected, a fresh ASI:One chat with Pocket Pilot open. Restart the server
+first so Debt Guard is off and no alerts are approved yet. Replies below
+are from the demo profile; Claude-worded lines (pick reason, coach) vary.
+
+**0:00 Intro (15s).** "Students juggle three to five cards. Pocket Pilot is
+the whole wallet, in chat, on ASI:One. No app needed."
+
+**0:15 "Show my cards"** (20s)
+> Your cards: Aurum Gold: $640.00 of $5,000.00 (13% used), 29.9% APR, due
+> Oct 30 ... Total: $2,140.00 of $24,500.00 (9% used). Debt Guard is off.
+
+Say: "Every number is from our engine, not the LLM."
+
+**0:35 "Which card should I use at Whole Foods for $84.50?"** (20s)
+> Aurum Gold earns 4% on grocery, $3.38 back ... Runner-up: Steady 2%.
+
+Say: "Behind this: Pocket Pilot asked Card Scorer, which asked Merchant
+Resolver. Three agents, two hops."
+
+**0:55 "How should I pay at Whole Foods for $84.50?"** (15s)
+> Pay with credit on Aurum Gold: you can pay this off in full, so it earns
+> $3.38 (4% on grocery) with no interest.
+
+**1:10 "I'm carrying a balance"** (20s)
+> Debt Guard is on. Same purchase, new answer: Pay with debit: you're
+> carrying a balance, so credit would start charging interest today. Debit
+> costs $0. ...
+
+Say: "Same purchase, new answer. It won't let you pay 29.9% for 4% back."
+
+**1:30 "Show my Visa rules"** (15s)
+> 1) If you can pay it off in full -> credit on your best rewards card.
+> 2) If you're carrying a balance and checking covers it after a $100
+> buffer -> debit, $0 interest. ... Right now, for your $84.50 at Whole
+> Foods, rule 2 applies.
+
+Then say **"Turn off Debt Guard"** (it re-answers again; no need to read it out).
+
+**1:45 "Anything due soon?"** then **"yes"** (25s)
+> Aurum Gold is due Oct 30. Pay $640 on Oct 29, after payday? ... Reply yes
+> to schedule $640 to Aurum Gold on Oct 29.
+>
+> Done. Scheduled $640 to Aurum Gold on Oct 29. Next: Free trial converts
+> tomorrow. StreamBox ... Reply yes to cancel it.
+
+Say: "Nothing moves without a yes, and only from the person who was asked.
+Payment Planner refuses writes from any agent but Pocket Pilot." Then say
+**"no"** to leave StreamBox alone.
+
+**2:10 "Tell me about Aurum Gold"**, then **"What if I only pay the minimum?"** (20s)
+> Aurum Gold: $640.00 at 29.9% APR. Pay in full: 1 month, $0.00 interest.
+> Minimum only: 42 months (about 3.5 years), $391.85 interest.
+
+**2:30 "Is my Voyager fee worth it?"** (15s)
+> Voyager's $95.00 annual fee comes up Nov 15. It earned you $41.00 this
+> year, $54.00 less than the fee ... Switch to Voyager Basic ... and keep
+> the account open ...
+
+**2:45 "How much have you saved me?"** (10s)
+> So far Pocket Pilot has saved you $16.00 in interest and $39.00 in late
+> fees, and you've earned $18.40 in rewards this month.
+
+**2:55 Close (5s).** "That's every screen of the app, in ASI:One. Say
+'help' to see the rest."
+
+Backup if a specialist is slow: answers still come back. Each specialist
+falls back to the server directly, and a slow Claude explanation falls back
+to the server's own wording.
