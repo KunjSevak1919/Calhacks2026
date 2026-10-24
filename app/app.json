@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Pocket Pilot",
+    "slug": "pocket-pilot",
+    "version": "1.0.0",
+    "scheme": "pocketpilot",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0E14",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.calhacks.pocketpilot"
+    },
+    "android": {
+      "package": "com.calhacks.pocketpilot",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0E14"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
