@@ -10,6 +10,7 @@ get_accounts() runs its own event loop: call it from a plain thread
 (asyncio.to_thread from inside an agent), never from a running loop.
 """
 import asyncio
+from decimal import Decimal
 
 
 async def _get_accounts(names):
@@ -46,3 +47,22 @@ async def _request_test_usdc(address, faucet_network):
 def request_test_usdc(address, faucet_network):
     """Ask CDP's testnet faucet for test USDC. Returns the faucet tx hash."""
     return asyncio.run(_request_test_usdc(address, faucet_network))
+
+
+async def _usdc_balance(address, faucet_network, usdc):
+    from cdp import CdpClient
+
+    async with CdpClient() as cdp:
+        result = await cdp.evm.list_token_balances(address=address, network=faucet_network)
+    for b in result.balances:
+        if b.token.contract_address.lower() == usdc.lower():
+            return Decimal(b.amount.amount) / (10 ** b.amount.decimals)
+    return Decimal(0)
+
+
+def usdc_balance(address, network):
+    """Test USDC balance in dollars, from CDP's onchain data API."""
+    import x402_config
+
+    net = x402_config.TESTNETS[network]
+    return asyncio.run(_usdc_balance(address, net["faucet_network"], net["usdc"]))
