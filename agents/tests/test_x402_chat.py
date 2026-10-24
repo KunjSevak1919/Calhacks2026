@@ -34,8 +34,8 @@ def test_reply_reports_earned_spent_and_remaining_cap(tmp_path):
     guard = SpendGuard(ledger, cfg.daily_cap_usd, cfg.max_per_call_usd)
     ledger.record_earned("/x402/best-card", Decimal("0.001"), tx="0xe1")
     ledger.record_earned("/x402/best-card", Decimal("0.001"), tx="0xe2")
-    pid, _ = guard.reserve("/x402/merchant-data", Decimal("0.001"))
-    ledger.record_result(pid, settled=True, tx="0xs1")
+    hold, _ = guard.reserve("/x402/merchant-data", Decimal("0.001"))
+    guard.confirm(hold, tx="0xs1")
     reply = x402_report.stats_reply(cfg)
     assert "test USDC (not real money)" in reply
     assert "Earned: $0.002 from 2 paid calls" in reply

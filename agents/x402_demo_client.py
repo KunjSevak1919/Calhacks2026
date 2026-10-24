@@ -83,7 +83,7 @@ def main():
            f"within its caps (${cfg.max_per_call_usd}/call, ${cfg.daily_cap_usd}/day)")
     ledger = Ledger(os.path.join(cfg.ledger_dir, "demo-client"))
     payer = X402Payer(cfg, x402_wallet.signer_for(x402_config.DEMO_ACCOUNT),
-                      SpendGuard(ledger, cfg.daily_cap_usd, cfg.max_per_call_usd), timeout=30)
+                      SpendGuard(ledger, cfg.daily_cap_usd, cfg.max_per_call_usd))
     print(f"    wallet: {payer.address}")
     result = payer.post(url, body)
     for s in result.steps:

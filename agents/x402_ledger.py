@@ -6,9 +6,11 @@ settles) and spent.jsonl (written by whoever pays: Merchant Resolver, or the
 demo client in its own sub-folder). Separate files, so the server and the
 resolver -- separate processes -- never write the same file. Chat reads both.
 
-SpendGuard counts a payment against the cap the moment we agree to sign it,
-before we know whether it settled: the conservative choice, since a signed
-authorization can move money. Settled payments are marked with their tx hash.
+Spending counts only once a settlement is confirmed (a receipt with a tx, or
+the chain says the authorization was used). While a payment is in flight,
+SpendGuard holds its amount in memory, so two payments at once can't both
+squeeze under the cap; a payment that fails releases its hold and costs
+nothing against the cap.
 
 Amounts are Decimal dollars; rounding happens only when displayed.
 """
@@ -64,78 +66,110 @@ class Ledger:
 
     # ---- paying side (x402_payer.py) ----
 
-    def record_signed(self, endpoint, usd, network=None):
-        """A payment we agreed to sign. Counts against the cap from now on."""
-        pid = uuid.uuid4().hex[:12]
-        self._append(SPENT_FILE, {"type": "signed", "id": pid, "at": self._clock().isoformat(),
-                                  "endpoint": endpoint, "usd": str(usd), "network": network})
-        return pid
+    def record_spent(self, endpoint, usd, tx=None, network=None):
+        """A payment confirmed settled. The only kind that counts."""
+        self._append(SPENT_FILE, {"type": "spent", "at": self._clock().isoformat(), "endpoint": endpoint,
+                                  "usd": str(usd), "tx": tx, "network": network})
 
-    def record_result(self, pid, settled, tx=None, error=None):
-        self._append(SPENT_FILE, {"type": "result", "id": pid, "at": self._clock().isoformat(),
-                                  "settled": bool(settled), "tx": tx, "error": error})
+    def record_failed(self, endpoint, usd, reason):
+        """Signed but not settled: costs nothing, logged so we can see why."""
+        self._append(SPENT_FILE, {"type": "failed", "at": self._clock().isoformat(), "endpoint": endpoint,
+                                  "usd": None if usd is None else str(usd), "reason": reason})
 
     def record_blocked(self, endpoint, usd, reason):
         self._append(SPENT_FILE, {"type": "blocked", "at": self._clock().isoformat(),
                                   "endpoint": endpoint, "usd": None if usd is None else str(usd),
                                   "reason": reason})
 
-    def signed_today_usd(self):
+    def _spent_entries(self):
+        """Confirmed payments: "spent" entries, plus older "signed" entries
+        that have a settled "result" (the format before 2026-10-24). A
+        signed payment that never settled doesn't count."""
+        entries = self._read(SPENT_FILE)
+        settled = {e["id"]: e for e in entries if e.get("type") == "result" and e.get("settled")}
+        out = []
+        for e in entries:
+            if e.get("type") == "spent":
+                out.append(e)
+            elif e.get("type") == "signed" and e.get("id") in settled:
+                out.append({**e, "tx": settled[e["id"]].get("tx")})
+        return out, entries
+
+    def spent_today_usd(self):
         today = self._clock().date().isoformat()
-        return sum((Decimal(e["usd"]) for e in self._read(SPENT_FILE)
-                    if e.get("type") == "signed" and e.get("at", "").startswith(today)), Decimal(0))
+        spent, _ = self._spent_entries()
+        return sum((Decimal(e["usd"]) for e in spent if e.get("at", "").startswith(today)), Decimal(0))
 
     def totals(self):
-        """Everything chat needs: earned, spent (settled), today's signed total."""
+        """Everything chat needs: earned, spent (confirmed), today's spending."""
         earned = self._read(EARNED_FILE)
-        spent = self._read(SPENT_FILE)
-        settled_ids = {e["id"]: e for e in spent if e.get("type") == "result" and e.get("settled")}
-        signed = [e for e in spent if e.get("type") == "signed"]
-        settled = [e for e in signed if e["id"] in settled_ids]
+        spent, entries = self._spent_entries()
         return {
             "earned_usd": sum((Decimal(e["usd"]) for e in earned), Decimal(0)),
             "earned_count": len(earned),
-            "spent_usd": sum((Decimal(e["usd"]) for e in settled), Decimal(0)),
-            "spent_count": len(settled),
-            "signed_today_usd": self.signed_today_usd(),
-            "blocked_count": sum(1 for e in spent if e.get("type") == "blocked"),
+            "spent_usd": sum((Decimal(e["usd"]) for e in spent), Decimal(0)),
+            "spent_count": len(spent),
+            "spent_today_usd": self.spent_today_usd(),
+            "blocked_count": sum(1 for e in entries if e.get("type") == "blocked"),
+            "failed_count": sum(1 for e in entries if e.get("type") == "failed"),
             "last_earned_tx": next((e.get("tx") for e in reversed(earned) if e.get("tx")), None),
-            "last_spent_tx": next((settled_ids[e["id"]].get("tx") for e in reversed(settled)
-                                   if settled_ids[e["id"]].get("tx")), None),
+            "last_spent_tx": next((e.get("tx") for e in reversed(spent) if e.get("tx")), None),
         }
 
 
 class SpendGuard:
     """Hard caps for the paying wallet: a per-call max and a per-UTC-day cap.
-    reserve() is the only way to get permission to sign, and it's atomic
-    (one lock), so two payments at once can't both squeeze under the cap."""
+
+    reserve() puts a hold on the amount (in memory) if confirmed spending
+    today + other holds + this price fits under the cap. Then exactly one of:
+    confirm() -- settled, so it's written as spent -- or release() -- it
+    didn't settle, so it's written as failed and costs nothing."""
 
     def __init__(self, ledger, daily_cap_usd, max_per_call_usd):
         self.ledger = ledger
         self.daily_cap = Decimal(daily_cap_usd)
         self.max_per_call = Decimal(max_per_call_usd)
         self._lock = threading.Lock()
+        self._holds = {}  # hold id -> (endpoint, usd, network)
+
+    def _held(self):
+        return sum((usd for _, usd, _ in self._holds.values()), Decimal(0))
 
     def check(self, usd):
-        """(ok, reason) without recording anything."""
+        """(ok, reason) without holding anything."""
         usd = Decimal(usd)
         if usd > self.max_per_call:
             return False, f"price ${usd} is over the per-call max ${self.max_per_call}"
-        spent = self.ledger.signed_today_usd()
-        if spent + usd > self.daily_cap:
-            return False, (f"over daily cap: spent ${spent} of ${self.daily_cap} today, "
+        spent = self.ledger.spent_today_usd()
+        held = self._held()
+        if spent + held + usd > self.daily_cap:
+            in_flight = f" (+${held} in flight)" if held else ""
+            return False, (f"over daily cap: spent ${spent}{in_flight} of ${self.daily_cap} today, "
                            f"this call needs ${usd}")
         return True, ""
 
     def reserve(self, endpoint, usd, network=None):
-        """Returns (payment_id, None) if allowed, else (None, reason). A
-        refusal is logged to the ledger too, so chat can say how many."""
+        """Returns (hold_id, None) if allowed, else (None, reason). A refusal
+        is logged to the ledger, so chat can say how many."""
+        usd = Decimal(usd)
         with self._lock:
             ok, reason = self.check(usd)
             if not ok:
                 self.ledger.record_blocked(endpoint, usd, reason)
                 return None, reason
-            return self.ledger.record_signed(endpoint, usd, network), None
+            hold = uuid.uuid4().hex[:12]
+            self._holds[hold] = (endpoint, usd, network)
+            return hold, None
+
+    def confirm(self, hold, tx=None):
+        with self._lock:
+            endpoint, usd, network = self._holds.pop(hold)
+            self.ledger.record_spent(endpoint, usd, tx=tx, network=network)
+
+    def release(self, hold, reason):
+        with self._lock:
+            endpoint, usd, _ = self._holds.pop(hold)
+            self.ledger.record_failed(endpoint, usd, reason)
 
     def remaining_today(self):
-        return max(self.daily_cap - self.ledger.signed_today_usd(), Decimal(0))
+        return max(self.daily_cap - self.ledger.spent_today_usd() - self._held(), Decimal(0))

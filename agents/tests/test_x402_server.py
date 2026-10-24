@@ -136,3 +136,35 @@ def test_server_refuses_mainnet(tmp_path):
 def test_best_card_reply_handles_missing_fields():
     reply = x402_server.best_card_reply("Somewhere", 5.0, {})
     assert reply["merchant"] == "Somewhere" and reply["best_card"] is None and reply["runner_up"] is None
+
+
+def test_settle_failure_is_logged_exactly_and_explained_to_the_client(tmp_path, caplog):
+    import logging
+
+    from tests.x402_fakes import FakeChain, resilient
+    chain = FakeChain()
+    fac = FakeFacilitator(settle_outcomes=["fail", "raise"], chain=chain)
+    app = x402_server.create_app(config(tmp_path), resilient(fac, chain), SELLER, Ledger(str(tmp_path)),
+                                 pick=fake_pick)
+    with caplog.at_level(logging.INFO, logger="x402-server"), serve(app) as url:
+        r = paying_session().post(f"{url}/x402/best-card", json={"merchant": "Whole Foods", "amount": 84.5},
+                                  timeout=10)
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error"] == "payment_not_settled"
+    assert body["charged"] is False
+    assert body["authorization_expires_at"]
+    assert "not charged" in body["message"]
+    log = caplog.text
+    assert "settle attempt 1 returned failure" in log
+    assert "invalid_exact_evm_transaction_failed: Missing or invalid parameters" in log
+    assert "settle attempt 2 FAILED" in log and "ReadTimeout" in log
+    assert "on-chain check: NOT charged" in log
+    assert fac.settle_calls == 2
+
+
+def test_authorization_window_is_short(setup):
+    url, _, _ = setup
+    r = requests.post(f"{url}/x402/best-card", json={"merchant": "Whole Foods", "amount": 84.5}, timeout=10)
+    accept = json.loads(base64.b64decode(r.headers["PAYMENT-REQUIRED"]))["accepts"][0]
+    assert accept["maxTimeoutSeconds"] == x402_config.AUTHORIZATION_WINDOW_SECONDS == 120

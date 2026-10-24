@@ -13,6 +13,11 @@ verified and settled through the facilitator by x402's own Flask middleware;
 the answer comes back with a PAYMENT-RESPONSE receipt (tx hash). A request
 the handler rejects (400/502) is never settled, so the caller isn't charged.
 
+If a paid request still ends in 402 (the facilitator rejected or couldn't
+settle the payment), the body says why, and whether the caller was charged,
+instead of x402's bare "{}". Settle failures are logged with the
+facilitator's exact error and retried once (x402_facilitator.py).
+
 A separate small service: calls the Flask API like every other agent and
 doesn't touch server/. No LLM anywhere in this path.
 
@@ -23,6 +28,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -34,7 +40,9 @@ from rapidfuzz import fuzz  # noqa: E402
 
 import api_client  # noqa: E402
 import merchant_resolver  # noqa: E402
+import x402_chain  # noqa: E402
 import x402_config  # noqa: E402
+from x402_facilitator import ResilientFacilitator  # noqa: E402
 from x402_ledger import Ledger  # noqa: E402
 
 logger = logging.getLogger("x402-server")
@@ -65,16 +73,97 @@ def lookup_merchant(name, data):
     return best if best_score >= MATCH_SCORE else None
 
 
-def _buffer_request_body(wsgi_app):
-    """Read the request body before x402's middleware runs. Werkzeug's dev
-    server drains any unread body after responding with a blocking read, and
-    x402 answers 402 without reading it -- so a POST with a body hung until
-    the client gave up. Buffering it first avoids that (bodies here are tiny)."""
+def payment_error_body(headers, payment_signature, chain_status):
+    """A clear JSON error for a paid request that still ended in 402. Uses
+    the PAYMENT-RESPONSE (settle failed) or PAYMENT-REQUIRED (verify
+    rejected) header x402 already set, plus what the chain said about the
+    caller's authorization (chain_status: nonce -> spent? True/False/None)."""
+    from x402.http.utils import (decode_payment_required_header, decode_payment_response_header,
+                                 decode_payment_signature_header)
+
+    h = {k.lower(): v for k, v in headers}
+    try:
+        auth = x402_chain.authorization_of(decode_payment_signature_header(payment_signature))
+    except Exception:
+        auth = None
+    expires = (datetime.fromtimestamp(auth[2], timezone.utc).isoformat(timespec="seconds")
+               if auth and auth[2] else None)
+    until = f", and it expires at {expires}" if expires else ""
+
+    if "payment-response" in h:
+        settle = decode_payment_response_header(h["payment-response"])
+        not_spent = auth is not None and chain_status.get(auth[1]) is False
+        if not_spent:
+            outcome = "You were not charged: your payment authorization was not used on-chain"
+        else:
+            outcome = "We couldn't confirm on-chain whether your payment authorization was used"
+        return {
+            "error": "payment_not_settled",
+            "reason": settle.error_reason,
+            "detail": settle.error_message,
+            "charged": False if not_spent else "unknown",
+            "authorization_expires_at": expires,
+            "message": (f"Your payment was verified but could not be settled ({settle.error_reason}). "
+                        f"{outcome}{until}. No answer is returned for an unsettled payment. Try again."),
+        }
+
+    reason = None
+    if "payment-required" in h:
+        try:
+            reason = decode_payment_required_header(h["payment-required"]).error
+        except Exception:
+            pass
+    return {
+        "error": "payment_rejected",
+        "reason": reason,
+        "charged": False,
+        "authorization_expires_at": expires,
+        "message": f"The payment was rejected before anything ran ({reason}), so nothing was charged.",
+    }
+
+
+def _wsgi_guard(wsgi_app, chain_status):
+    """Outermost WSGI layer, around x402's middleware:
+
+    1. Read the request body first. Werkzeug's dev server drains any unread
+       body after responding with a blocking read, and x402 answers 402
+       without reading it -- so a POST with a body hung until the client
+       gave up. Buffering it first avoids that (bodies here are tiny).
+    2. If a request that carried a payment still ends in 402, replace x402's
+       bare "{}" body with payment_error_body() (headers kept as they are)."""
     def app(environ, start_response):
         length = int(environ.get("CONTENT_LENGTH") or 0)
         body = environ["wsgi.input"].read(length) if length > 0 else b""
         environ["wsgi.input"] = io.BytesIO(body)
-        return wsgi_app(environ, start_response)
+
+        payment = environ.get("HTTP_PAYMENT_SIGNATURE") or environ.get("HTTP_X_PAYMENT")
+        if not payment:
+            return wsgi_app(environ, start_response)
+
+        captured, chunks = {}, []
+
+        def capture(status, headers, exc_info=None):
+            captured.update(status=status, headers=list(headers))
+            return chunks.append
+
+        result = wsgi_app(environ, capture)
+        try:
+            chunks.extend(result)
+        finally:
+            if hasattr(result, "close"):
+                result.close()
+
+        status, headers = captured["status"], captured["headers"]
+        out = b"".join(chunks)
+        if status.startswith("402"):
+            error = payment_error_body(headers, payment, chain_status)
+            logger.warning(f"paid request ended in 402: {error['error']} ({error['reason']}), "
+                           f"charged={error['charged']}")
+            out = json.dumps(error).encode("utf-8")
+            headers = [(k, v) for k, v in headers if k.lower() not in ("content-length", "content-type")]
+            headers += [("Content-Type", "application/json"), ("Content-Length", str(len(out)))]
+        start_response(status, headers)
+        return [out]
     return app
 
 
@@ -127,7 +216,8 @@ def _routes(cfg, pay_to):
 
     def route(price, description):
         return RouteConfig(
-            accepts=PaymentOption(scheme="exact", pay_to=pay_to, price=f"${price}", network=cfg.network),
+            accepts=PaymentOption(scheme="exact", pay_to=pay_to, price=f"${price}", network=cfg.network,
+                                  max_timeout_seconds=x402_config.AUTHORIZATION_WINDOW_SECONDS),
             description=description, mime_type="application/json")
 
     return {
@@ -154,12 +244,15 @@ def _record_earning(cfg, ledger):
 
 def create_app(cfg, facilitator, pay_to, ledger, pick=api_client.pick, merchant_data=None):
     """facilitator: anything with verify/settle/get_supported (x402's
-    HTTPFacilitatorClientSync in real use, a fake in tests)."""
+    HTTPFacilitatorClientSync in real use, a fake in tests). It's wrapped in
+    ResilientFacilitator unless it already is one."""
     from x402 import x402ResourceServerSync
     from x402.http.middleware.flask import PaymentMiddleware
     from x402.mechanisms.evm.exact import register_exact_evm_server
 
     x402_config.require_testnet(cfg)
+    if not isinstance(facilitator, ResilientFacilitator):
+        facilitator = ResilientFacilitator(facilitator, cfg.rpc_url, cfg.usdc)
     merchant_data = merchant_data or load_merchant_data()
     app = Flask("x402-server")
 
@@ -204,7 +297,7 @@ def create_app(cfg, facilitator, pay_to, ledger, pick=api_client.pick, merchant_
     register_exact_evm_server(server, cfg.network)
     server.on_after_settle(_record_earning(cfg, ledger))
     PaymentMiddleware(app, _routes(cfg, pay_to), server)
-    app.wsgi_app = _buffer_request_body(app.wsgi_app)
+    app.wsgi_app = _wsgi_guard(app.wsgi_app, facilitator.chain_status)
     return app
 
 
@@ -224,9 +317,11 @@ def main():
     from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync
 
     pay_to = cfg.pay_to or x402_wallet.address_for(x402_config.SELLER_ACCOUNT)
-    facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=cfg.facilitator_url))
+    facilitator = HTTPFacilitatorClientSync(
+        FacilitatorConfig(url=cfg.facilitator_url, timeout=cfg.facilitator_timeout_seconds))
     app = create_app(cfg, facilitator, pay_to, Ledger(cfg.ledger_dir))
-    print(f"Earnings go to {pay_to} ({cfg.network_name}); facilitator {cfg.facilitator_url}")
+    print(f"Earnings go to {pay_to} ({cfg.network_name}); facilitator {cfg.facilitator_url} "
+          f"({cfg.facilitator_timeout_seconds:.0f}s timeout, settle retried once)")
     print(f"Paid: POST {cfg.server_url}{BEST_CARD} (${cfg.price_best_card_usd}), "
           f"POST {cfg.server_url}{MERCHANT_DATA} (${cfg.price_merchant_data_usd}). Free: GET /x402/stats")
     app.run(host=cfg.host, port=cfg.port, threaded=True)
