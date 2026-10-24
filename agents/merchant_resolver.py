@@ -34,9 +34,10 @@ def resolve_store(merchant=None, mcc=None, place_types=None, domain=None):
     return result, needs_paid_lookup
 
 
-def from_paid_lookup(merchant, mcc, confidence, note):
+def from_paid_lookup(merchant, mcc, confidence, how):
     """A result (same shape as resolve_store's) built from a paid lookup's
-    mcc, with category/label from the same server MCC table."""
+    mcc, with category/label from the same server MCC table. The note reads
+    "<label>, <how>", e.g. "restaurant, found with a paid x402 lookup (...)"."""
     category, label = server_resolver.category_for_mcc(mcc)
     return {"merchant": merchant, "mcc": str(mcc), "category": category, "label": label,
-            "confidence": confidence, "source": "paid_lookup_x402", "note": note}
+            "confidence": confidence, "source": "paid_lookup_x402", "note": f"{label.lower()}, {how}"}

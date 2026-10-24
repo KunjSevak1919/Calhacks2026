@@ -8,8 +8,8 @@ in card_scorer.py, which has no uagents import so it's directly testable.
 
 Called by the Pocket Pilot front-door agent over agent-to-agent messages,
 but its protocol is published (publish_manifest=True) so any other agent on
-Agentverse can resolve its address and call it directly too -- the hook for
-a future Coinbase x402 paid endpoint (not built here).
+Agentverse can resolve its address and call it directly too. The same
+answer is sold to other agents over Coinbase x402 by x402_server.py.
 
 Run standalone: python card_scorer_agent.py
 """
@@ -25,13 +25,16 @@ from uagents_core.identity import Identity  # noqa: E402
 import api_client  # noqa: E402
 import card_scorer  # noqa: E402
 import local_routing  # noqa: E402
+import x402_config  # noqa: E402
 from messages import CardSummary, ResolveRequest, ResolveResponse, ScoreRequest, ScoreResponse  # noqa: E402
 from seeds import require_seed  # noqa: E402
 
 CARD_SCORER_PORT = local_routing.port("card-scorer")
 MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(require_seed("MERCHANT_RESOLVER_SEED"), 0).address
 
-RESOLVER_TIMEOUT_SECONDS = 4
+# With x402 on, the Resolver may pay for a lookup first (sign, verify,
+# settle on Base Sepolia: ~2-5s), so wait longer. Off: unchanged.
+RESOLVER_TIMEOUT_SECONDS = 10 if x402_config.load().enabled else 4
 
 agent = Agent(
     name="card-scorer",
