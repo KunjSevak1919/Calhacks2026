@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import api_client  # noqa: E402
+from seeds import missing_seeds  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = ["merchant_resolver_agent.py", "card_scorer_agent.py", "payment_planner_agent.py",
@@ -37,6 +38,11 @@ def _check_flask():
 
 
 def main():
+    missing = missing_seeds()
+    if missing:
+        print(f"Missing from .env: {', '.join(missing)}. Each agent needs its own seed "
+              "(a long random string, see .env.example). Not starting any agent.")
+        sys.exit(1)
     _check_flask()
     procs = []
     try:

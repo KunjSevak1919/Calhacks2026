@@ -180,3 +180,24 @@ def test_required_yes_words(word):
 @pytest.mark.parametrize("word", ["no", "later", "skip"])
 def test_required_no_words(word):
     assert intents.parse_intent(word, has_pending=True)["intent"] == "confirm_no"
+
+
+# ---------- ASI:One sends curly quotes ----------
+
+MENTION = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq"
+
+
+def test_curly_apostrophe_matches_like_a_straight_one():
+    assert intents.normalize_text("I’m in debt") == "I'm in debt"
+    assert intents.parse_intent(f"{MENTION} I’m in debt")["intent"] == "debt_guard_on"
+
+
+def test_curly_quotes_around_a_command_are_stripped():
+    assert intents.parse_intent("“help”")["intent"] == "help"
+    assert intents.parse_intent(f"{MENTION} “yes”", has_pending=True)["intent"] == "confirm_yes"
+
+
+def test_curly_apostrophe_in_merchant_name():
+    parsed = intents.parse_intent("which card at Trader Joe’s for $30")
+    assert parsed["intent"] == "pick"
+    assert parsed["merchant"] == "Trader Joe's"

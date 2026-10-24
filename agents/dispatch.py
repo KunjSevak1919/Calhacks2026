@@ -12,11 +12,14 @@ agents first and falls back to DirectDelegate's behavior on timeout -- but
 dispatch.py doesn't need to know or care which path produced the answer.
 """
 import logging
+import os
+import re
 import time
 import uuid
 from datetime import date as _date
 
 import api_client
+import card_replies
 import intents
 
 PENDING_TTL_SECONDS = 600  # 10 minutes
@@ -24,10 +27,30 @@ PENDING_TTL_SECONDS = 600  # 10 minutes
 logger = logging.getLogger("pocket_pilot.dispatch")
 
 HELP_TEXT = (
-    "I can: pick the best card for a purchase (\"use at Target for $42\"), "
-    "turn Debt Guard on/off, tell you what's due soon, log a payment you already made, "
-    "show how much you've saved, or answer credit questions. Just ask."
+    "Here's everything I can do. Ask in your own words.\n\n"
+    "Pay smart\n"
+    "- \"Which card should I use at Whole Foods for $84.50?\"\n"
+    "- \"How should I pay at Best Buy for $600?\" (Visa Flexible, simulated)\n"
+    "- \"Show my Visa rules\"\n"
+    "- \"I'm carrying a balance\" or \"Turn off Debt Guard\"\n"
+    "- \"What kind of store is Costco?\"\n\n"
+    "Never miss a deadline\n"
+    "- \"Anything due soon?\", then \"yes\" or \"no\"\n"
+    "- \"Show my cards\" or \"How am I doing?\"\n"
+    "- \"Is my Voyager fee worth it?\"\n"
+    "- \"How much have you saved me?\"\n\n"
+    "Understand your credit\n"
+    "- \"Tell me about Aurum Gold\"\n"
+    "- \"How long to pay off Aurum Gold?\" or \"What if I only pay the minimum?\"\n"
+    "- \"Why did my score drop?\"\n\n"
+    "I never pay or cancel anything without your \"yes\"."
 )
+
+
+def help_text():
+    if demo_mode_on():
+        return HELP_TEXT + "\n\nDemo: \"reset demo\" starts over."
+    return HELP_TEXT
 
 
 # ---------- delegate interface ----------
@@ -69,6 +92,13 @@ class DirectDelegate:
         return result.get("store")
 
 
+def conversation_key(sender, session):
+    """One chat = one sender in one session. Pending approvals and last
+    purchase are stored under this, so someone else who knows (or shares)
+    the session id still can't approve another sender's action."""
+    return f"{sender}:{session}"
+
+
 # ---------- storage helpers (works with any .get(key)/.set(key, value) store,
 # e.g. ctx.storage from uagents, or a plain dict-backed fake in tests) ----------
 
@@ -106,12 +136,28 @@ def clear_pending(storage, sender):
     storage.set(_pending_key(sender), None)
 
 
+def _last_card_key(sender):
+    return f"last_card:{sender}"
+
+
+def get_last_card(storage, sender):
+    """The card this chat last asked about, so "what if I only pay the
+    minimum?" can follow "tell me about Aurum Gold"."""
+    return storage.get(_last_card_key(sender))
+
+
+def set_last_card(storage, sender, card_id):
+    storage.set(_last_card_key(sender), card_id)
+
+
 def get_last_pick(storage, sender):
+    """The last purchase question in this chat: kind "pick" (which card) or
+    "vfc" (Visa Flexible: how should I pay). Whichever was asked last wins."""
     return storage.get(_last_pick_key(sender))
 
 
-def set_last_pick(storage, sender, merchant, amount):
-    storage.set(_last_pick_key(sender), {"merchant": merchant, "amount": amount})
+def set_last_pick(storage, sender, merchant, amount, kind="pick"):
+    storage.set(_last_pick_key(sender), {"merchant": merchant, "amount": amount, "kind": kind})
 
 
 # ---------- reply builders ----------
@@ -214,7 +260,15 @@ async def handle_debt_guard(storage, sender, enabled, delegate):
         return str(e)
     reply = f"Debt Guard is {'on' if enabled else 'off'}."
     last_pick = get_last_pick(storage, sender)
-    if last_pick and last_pick.get("amount") is not None:
+    if last_pick and last_pick.get("amount") is not None and last_pick.get("kind") == "vfc":
+        try:
+            result = api_client.vfc_authorize(merchant=last_pick.get("merchant"),
+                                              amount=last_pick["amount"])
+            if result.get("reason"):
+                reply += " Same purchase, new answer: " + result["reason"]
+        except api_client.ApiError:
+            pass
+    elif last_pick and last_pick.get("amount") is not None:
         try:
             request_id = str(uuid.uuid4())
             result = await delegate.score_pick(request_id, last_pick.get("merchant"), last_pick["amount"])
@@ -245,6 +299,9 @@ async def handle_notifications(storage, sender, delegate):
     return reply
 
 
+WRITE_FAILED_MESSAGE = "I couldn't do that, so nothing was paid. Try again."
+DISMISS_FAILED_MESSAGE = "I couldn't do that, so nothing changed. Try again."
+
 NOTHING_PENDING_MESSAGE = (
     "There's nothing waiting for your OK right now. "
     "Ask \"anything due soon?\" to see what I can do."
@@ -261,7 +318,8 @@ async def handle_confirm_yes(storage, sender, delegate):
         result = await delegate.execute_action(action_id, sender, "approve", note["id"])
     except api_client.ApiError as e:
         if not e.not_found:
-            return str(e)
+            logger.warning("approve %s failed: %s", note["id"], e)
+            return WRITE_FAILED_MESSAGE  # pending kept, so "yes" can retry
         # The server says it's gone -- in this flow that only happens because
         # it was already approved a moment earlier (e.g. a specialist's reply
         # arrived after our timeout and we'd already treated this as done).
@@ -297,7 +355,8 @@ async def handle_confirm_no(storage, sender, delegate):
         await delegate.execute_action(action_id, sender, "dismiss", note["id"])
     except api_client.ApiError as e:
         if not e.not_found:
-            return str(e)
+            logger.warning("dismiss %s failed: %s", note["id"], e)
+            return DISMISS_FAILED_MESSAGE
         # Already gone -- already dismissed/handled, which is fine.
     clear_pending(storage, sender)
     return "Okay, skipping that for now."
@@ -311,8 +370,11 @@ async def handle_pay(parsed, delegate):
     try:
         result = await delegate.pay(action_id, merchant, amount, card)
     except api_client.ApiError as e:
-        return str(e)
-    return result.get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."
+        if not e.not_found:
+            logger.warning("pay failed: %s", e)
+            return WRITE_FAILED_MESSAGE
+        result = None
+    return (result or {}).get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."
 
 
 async def handle_impact(delegate):
@@ -320,7 +382,14 @@ async def handle_impact(delegate):
     try:
         result = await delegate.impact(request_id)
     except api_client.ApiError as e:
-        return str(e)
+        if e.status_code != 404 or e.not_found:
+            return str(e)
+        # No /api/impact on this server: use the same numbers the app's
+        # home screen shows, from /api/wallet.
+        try:
+            return card_replies.format_impact(api_client.wallet().get("impact") or {})
+        except api_client.ApiError as e2:
+            return str(e2)
     return result.get("message") or str(result)
 
 
@@ -350,7 +419,82 @@ def handle_coach(question):
     return result.get("answer", "I'm not sure, try asking Coach directly in the app.")
 
 
+def demo_mode_on():
+    return os.getenv("DEMO_MODE", "off").strip().lower() == "on"
+
+
+def handle_wallet():
+    """No specialist owns the wallet (read-only), so a direct Flask call,
+    same as Visa and coach."""
+    try:
+        return card_replies.format_wallet(api_client.wallet())
+    except api_client.ApiError as e:
+        return str(e)
+
+
+COACH_TOPIC_WORDS = ("credit", "score", "interest", "apr", "utilization", "fico", "debt", "limit")
+
+
+def handle_card_details(storage, sender, parsed):
+    query = parsed.get("card_query") or ""
+    try:
+        cards = api_client.wallet().get("cards") or []
+    except api_client.ApiError as e:
+        return str(e)
+    card = card_replies.find_card(query, cards)
+    if card is None:
+        if any(w in query.lower() for w in COACH_TOPIC_WORDS):
+            return handle_coach(parsed.get("raw") or query)  # "tell me about credit scores"
+        return card_replies.unknown_card(query, cards)
+    set_last_card(storage, sender, card.get("id"))
+    return card_replies.format_card(card)
+
+
+def handle_payback(storage, sender, parsed):
+    try:
+        cards = api_client.wallet().get("cards") or []
+    except api_client.ApiError as e:
+        return str(e)
+    card = card_replies.find_card(parsed.get("raw"), cards)
+    if card is None and parsed.get("card_query"):
+        return card_replies.unknown_card(parsed["card_query"], cards)
+    if card is None:  # "what if I only pay the minimum?" right after asking about a card
+        card = next((c for c in cards if c.get("id") == get_last_card(storage, sender)), None)
+    if card is None:
+        return card_replies.unknown_card(None, cards)
+    set_last_card(storage, sender, card.get("id"))
+    try:
+        plan = api_client.payback(card["id"])
+    except api_client.ApiError as e:
+        return str(e)
+    return card_replies.format_payback(card, plan)
+
+
+async def handle_annual_fee(storage, sender, parsed, delegate):
+    try:
+        cards = api_client.wallet().get("cards") or []
+        notes = await delegate.due_soon(str(uuid.uuid4())) or []
+    except api_client.ApiError as e:
+        return str(e)
+    checks = {(n.get("data") or {}).get("card_id"): n["data"] for n in notes
+              if n.get("kind") == "annual_fee" and n.get("data")}
+    card = card_replies.find_card(parsed.get("raw"), cards)
+    if card is not None:
+        set_last_card(storage, sender, card.get("id"))
+        if card.get("id") in checks:
+            return card_replies.format_fee_check(checks[card["id"]])
+        return card_replies.format_no_fee_check(card)
+    if checks:
+        return "\n\n".join(card_replies.format_fee_check(d) for d in checks.values())
+    fee_cards = [c for c in cards if c.get("annual_fee")]
+    if not fee_cards:
+        return "None of your cards charge an annual fee."
+    return "\n".join(card_replies.format_no_fee_check(c) for c in fee_cards)
+
+
 def handle_reset_demo():
+    if not demo_mode_on():
+        return "Demo reset is turned off."
     try:
         api_client.demo_reset()
     except api_client.ApiError as e:
@@ -358,7 +502,7 @@ def handle_reset_demo():
     return "Demo reset."
 
 
-def handle_vfc_authorize(parsed):
+def handle_vfc_authorize(storage, sender, parsed):
     """Visa Flexible Credential (simulated): read-only, no approval needed
     since nothing moves money -- it's a what-if, like /api/pick. No
     specialist owns this (same reasoning as coach/reset above), so it's a
@@ -370,21 +514,99 @@ def handle_vfc_authorize(parsed):
         result = api_client.vfc_authorize(merchant=merchant, amount=amount)
     except api_client.ApiError as e:
         return str(e)
+    set_last_pick(storage, sender, merchant, amount, kind="vfc")
     return result.get("reason") or "Not sure how to fund that purchase."
 
 
-def handle_vfc_rules():
+def _whole_money(value):
+    """$100 for whole dollars, $12.50 otherwise; "—" if missing."""
+    if value is None:
+        return "—"
+    return f"${value:,.0f}" if float(value).is_integer() else f"${value:,.2f}"
+
+
+INSTALLMENTS_RE = re.compile(r"(\d+)\s+equal\s+installments,\s*(\d+)\s+days", re.IGNORECASE)
+
+
+def _rule_line(rule, settings):
+    """When the rule applies -> what it does, with the server's thresholds."""
+    rid = rule.get("id")
+    if rid == "credit-if-clear":
+        return "If you can pay it off in full -> credit on your best rewards card."
+    if rid == "debit-if-carrying":
+        return (f"If you're carrying a balance and checking covers it after a "
+                f"{_whole_money(settings.get('debit_buffer'))} buffer -> debit, $0 interest.")
+    if rid == "installments-if-large":
+        m = INSTALLMENTS_RE.search(rule.get("then", ""))
+        plan = f"{m.group(1)} installments, {m.group(2)} days apart" if m else rule.get("then", "")
+        return (f"If it's {_whole_money(settings.get('installment_threshold'))}+ and debit "
+                f"can't cover it -> {plan}.")
+    if rid == "credit-lowest-apr-otherwise":
+        return "Otherwise -> credit on your lowest-APR card."
+    return f"If {rule.get('when', '').rstrip('.')} -> {rule.get('then', '').rstrip('.')}."
+
+
+def _rule_number(rules, rule_id):
+    ids = [r.get("id") for r in rules]
+    return ids.index(rule_id) + 1 if rule_id in ids else None
+
+
+def _rule_now(storage, sender, rules):
+    """Which rule applies to this user right now: for their last Visa
+    question if there is one, otherwise from Debt Guard's state."""
+    last = get_last_pick(storage, sender)
+    try:
+        if last and last.get("kind") == "vfc" and last.get("amount") is not None:
+            result = api_client.vfc_authorize(merchant=last.get("merchant"), amount=last["amount"])
+            n = _rule_number(rules, result.get("rule_id"))
+            if n:
+                where = f" at {last['merchant']}" if last.get("merchant") else ""
+                return f"Right now, for your ${last['amount']:,.2f}{where}, rule {n} applies."
+            return None
+        guard = api_client.get_settings().get("debt_guard")
+    except api_client.ApiError:
+        return None
+    clear, debit = _rule_number(rules, "credit-if-clear"), _rule_number(rules, "debit-if-carrying")
+    if not guard and clear:
+        return (f"Right now Debt Guard is off, so rule {clear} applies to anything you can pay off "
+                "in full. Ask \"how should I pay at Target for $50?\" to check a purchase.")
+    if guard and debit:
+        return (f"Right now Debt Guard is on, so rule {debit} applies when checking covers the "
+                "purchase; if not, a later rule does.")
+    return None
+
+
+def handle_vfc_rules(storage, sender):
     try:
         result = api_client.vfc_rules()
     except api_client.ApiError as e:
         return str(e)
-    lines = [r["then"] for r in result.get("rules", [])]
-    numbered = " ".join(f"{i + 1}) {line}." for i, line in enumerate(lines))
-    return f"Your Visa Flexible rules (simulated, not a real Visa API): {numbered}"
+    rules, settings = result.get("rules", []), result.get("settings") or {}
+    lines = [f"{i + 1}) {_rule_line(r, settings)}" for i, r in enumerate(rules)]
+    reply = "Your Visa Flexible rules (simulated, not a real Visa API):\n" + "\n".join(lines)
+    now = _rule_now(storage, sender, rules)
+    return f"{reply}\n\n{now}" if now else reply
+
+
+DOUBLE_DASH_RE = re.compile(r"\s*--\s*(\S?)")
+
+
+def tidy_reply(text):
+    """ASI:One shows "--" literally, which reads oddly. Turn each one into a
+    plain sentence break: "today -- debit costs" -> "today. Debit costs"."""
+    def _break(m):
+        before = text[:m.start()].rstrip()
+        stop = "" if not before or before.endswith((".", "!", "?", ":")) else "."
+        return f"{stop} {m.group(1).upper()}" if m.group(1) else stop
+    return DOUBLE_DASH_RE.sub(_break, text)
 
 
 async def build_reply(sender, text, storage, delegate=None):
     """Text + per-sender storage in, reply string out."""
+    return tidy_reply(await _route(sender, text, storage, delegate))
+
+
+async def _route(sender, text, storage, delegate=None):
     delegate = delegate or DirectDelegate()
     pending = get_pending(storage, sender)
     parsed = intents.parse_intent(text, has_pending=bool(pending))
@@ -395,7 +617,7 @@ async def build_reply(sender, text, storage, delegate=None):
 
     intent = parsed["intent"]
     if intent == "help":
-        return HELP_TEXT
+        return help_text()
     if intent == "pick":
         return await handle_pick(storage, sender, parsed, delegate)
     if intent == "debt_guard_on":
@@ -418,8 +640,16 @@ async def build_reply(sender, text, storage, delegate=None):
         return handle_coach(parsed.get("question") or text)
     if intent == "reset_demo":
         return handle_reset_demo()
+    if intent == "wallet":
+        return handle_wallet()
+    if intent == "card_details":
+        return handle_card_details(storage, sender, parsed)
+    if intent == "payback":
+        return handle_payback(storage, sender, parsed)
+    if intent == "annual_fee":
+        return await handle_annual_fee(storage, sender, parsed, delegate)
     if intent == "vfc_authorize":
-        return handle_vfc_authorize(parsed)
+        return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":
-        return handle_vfc_rules()
+        return handle_vfc_rules(storage, sender)
     return "Not sure what you mean. Say \"help\" to see what I can do."

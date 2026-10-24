@@ -24,10 +24,11 @@ class ApiError(Exception):
     HTML 404 page, no JSON body), which keeps not_found=False.
     """
 
-    def __init__(self, message, status_code=None, not_found=False):
+    def __init__(self, message, status_code=None, not_found=False, timed_out=False):
         super().__init__(message)
         self.status_code = status_code
         self.not_found = not_found
+        self.timed_out = timed_out
 
 
 def _base_url():
@@ -41,7 +42,7 @@ def _request(method, path, **kwargs):
     except requests.exceptions.ConnectionError as exc:
         raise ApiError(f"Can't reach Pocket Pilot's server at {url}.") from exc
     except requests.exceptions.Timeout as exc:
-        raise ApiError(f"Pocket Pilot's server timed out at {url}.") from exc
+        raise ApiError(f"Pocket Pilot's server timed out at {url}.", timed_out=True) from exc
     except requests.exceptions.RequestException as exc:
         raise ApiError(f"Pocket Pilot's server call failed: {exc}") from exc
 
@@ -54,7 +55,7 @@ def _request(method, path, **kwargs):
             # Route exists; this specific id/resource wasn't found -- e.g.
             # confirmed live: approving an already-approved notification
             # returns {"error": "No notification called due-aurum"}, 404.
-            raise ApiError("I couldn't find that anymore -- it may already be done.",
+            raise ApiError("I couldn't find that anymore. It may already be done.",
                             status_code=404, not_found=True)
         raise ApiError(f"{path} isn't available on this server yet.", status_code=404)
     if not resp.ok:
@@ -85,6 +86,14 @@ def pick(merchant=None, amount=0.0, mcc=None, place_types=None, domain=None,
             "domain": domain, "foreign": foreign, "explain": explain}
     if debt_guard is not None:
         body["debt_guard"] = debt_guard
+    try:
+        return _request("POST", "/api/pick", json={k: v for k, v in body.items() if v is not None})
+    except ApiError as e:
+        if not (e.timed_out and explain):
+            raise
+    # explain=True asks Claude to word the reason, which can take over 5s.
+    # Same pick, the server's own template reason: fast, same numbers.
+    body["explain"] = False
     return _request("POST", "/api/pick", json={k: v for k, v in body.items() if v is not None})
 
 

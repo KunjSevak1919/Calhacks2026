@@ -24,21 +24,26 @@ from uagents_core.identity import Identity  # noqa: E402
 
 import api_client  # noqa: E402
 import card_scorer  # noqa: E402
+import local_routing  # noqa: E402
 from messages import CardSummary, ResolveRequest, ResolveResponse, ScoreRequest, ScoreResponse  # noqa: E402
+from seeds import require_seed  # noqa: E402
 
-CARD_SCORER_PORT = int(os.getenv("CARD_SCORER_PORT", "8002"))
-MERCHANT_RESOLVER_SEED = os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed")
-MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(MERCHANT_RESOLVER_SEED, 0).address
+CARD_SCORER_PORT = local_routing.port("card-scorer")
+MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(require_seed("MERCHANT_RESOLVER_SEED"), 0).address
 
 RESOLVER_TIMEOUT_SECONDS = 4
 
 agent = Agent(
     name="card-scorer",
-    seed=os.getenv("CARD_SCORER_SEED", "card-scorer-dev-seed"),
+    seed=require_seed("CARD_SCORER_SEED"),
     port=CARD_SCORER_PORT,
+    # Mailbox keeps it registered on Agentverse; resolve= and the /health
+    # route below make hops between our own agents local (local_routing.py).
     mailbox=True,
     publish_agent_details=True,
+    resolve=local_routing.build_resolver(),
 )
+local_routing.keep_local_server(agent, "card-scorer")
 
 score_proto = Protocol(name="PocketPilotCardScorer", version="1.0")
 
@@ -63,9 +68,11 @@ async def _resolve_mcc(ctx: Context, request_id, merchant):
     ctx.logger.info(f"asking resolver: {merchant!r}")
     req = ResolveRequest(request_id=request_id, merchant=merchant)
     try:
-        resp, _status = await ctx.send_and_receive(
+        resp, status = await ctx.send_and_receive(
             MERCHANT_RESOLVER_ADDRESS, req, response_type=ResolveResponse,
             timeout=RESOLVER_TIMEOUT_SECONDS)
+        ctx.logger.info(f"[{request_id}] ResolveRequest -> Merchant Resolver via "
+                         f"{local_routing.route(status)}")
     except Exception:
         resp = None
 
@@ -97,7 +104,7 @@ async def handle_score_request(ctx: Context, sender: str, msg: ScoreRequest):
                                   debt_guard=msg.debt_guard)
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] pick failed: {e}")
-        await ctx.send(sender, ScoreResponse(request_id=msg.request_id, ok=False, error=str(e)))
+        await local_routing.reply(ctx, sender, ScoreResponse(request_id=msg.request_id, ok=False, error=str(e)))
         return
 
     ranked = [_card_summary(c) for c in result["ranked"]]
@@ -119,7 +126,7 @@ async def handle_score_request(ctx: Context, sender: str, msg: ScoreRequest):
         note=store.get("note"),
     )
     ctx.logger.info(f"[{msg.request_id}] best={response.best.name if response.best else None!r}")
-    await ctx.send(sender, response)
+    await local_routing.reply(ctx, sender, response)
 
 
 agent.include(score_proto, publish_manifest=True)
@@ -127,6 +134,7 @@ agent.include(score_proto, publish_manifest=True)
 
 if __name__ == "__main__":
     print(f"Card Scorer agent address: {agent.address}")
+    print(local_routing.describe())
     print(f"Inspector: https://agentverse.ai/inspect/?uri=http%3A%2F%2F127.0.0.1%3A{CARD_SCORER_PORT}"
           f"&address={agent.address}")
     print(f"Merchant Resolver address (from seed): {MERCHANT_RESOLVER_ADDRESS}")

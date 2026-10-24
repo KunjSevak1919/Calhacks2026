@@ -29,7 +29,9 @@ from uagents_core.identity import Identity  # noqa: E402
 
 import api_client  # noqa: E402
 import dispatch  # noqa: E402
+import local_routing  # noqa: E402
 import messages  # noqa: E402
+from seeds import require_seed  # noqa: E402
 
 # Single-hop reads (due_soon, impact, resolve_merchant direct) can afford to
 # retry freely, so they stay snappy. score_pick is now a 2-hop chain --
@@ -44,11 +46,11 @@ READ_TIMEOUT_SECONDS = 5
 SCORE_READ_TIMEOUT_SECONDS = 10
 WRITE_TIMEOUT_SECONDS = 15
 
-AGENT_PORT = int(os.getenv("POCKET_PILOT_PORT", os.getenv("AGENT_PORT", "8001")))
-POCKET_PILOT_SEED = os.getenv("POCKET_PILOT_SEED", os.getenv("AGENT_SEED", "pocket-pilot-dev-seed"))
-CARD_SCORER_SEED = os.getenv("CARD_SCORER_SEED", "card-scorer-dev-seed")
-PAYMENT_PLANNER_SEED = os.getenv("PAYMENT_PLANNER_SEED", "payment-planner-dev-seed")
-MERCHANT_RESOLVER_SEED = os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed")
+AGENT_PORT = local_routing.port("pocket-pilot")
+POCKET_PILOT_SEED = require_seed("POCKET_PILOT_SEED")
+CARD_SCORER_SEED = require_seed("CARD_SCORER_SEED")
+PAYMENT_PLANNER_SEED = require_seed("PAYMENT_PLANNER_SEED")
+MERCHANT_RESOLVER_SEED = require_seed("MERCHANT_RESOLVER_SEED")
 
 # An agent's address is derived from its seed the same way `Agent(seed=...)`
 # does internally (Identity.from_seed(seed, 0)), so Pocket Pilot can know
@@ -58,12 +60,18 @@ CARD_SCORER_ADDRESS = Identity.from_seed(CARD_SCORER_SEED, 0).address
 PAYMENT_PLANNER_ADDRESS = Identity.from_seed(PAYMENT_PLANNER_SEED, 0).address
 MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(MERCHANT_RESOLVER_SEED, 0).address
 
+SPECIALIST_NAMES = {CARD_SCORER_ADDRESS: "Card Scorer", PAYMENT_PLANNER_ADDRESS: "Payment Planner",
+                    MERCHANT_RESOLVER_ADDRESS: "Merchant Resolver"}
+
+# Mailbox stays on: it's how ASI:One reaches Pocket Pilot. The resolver only
+# changes how Pocket Pilot finds its own specialists (see local_routing.py).
 agent = Agent(
     name="pocket-pilot",
     seed=POCKET_PILOT_SEED,
     port=AGENT_PORT,
     mailbox=True,
     publish_agent_details=True,
+    resolve=local_routing.build_resolver(),
 )
 
 
@@ -72,6 +80,13 @@ def _card_dict(card):
         return None
     return {"name": card.name, "net": card.net, "reward": card.reward,
             "interest": card.interest, "rate_label": card.rate_label, "apr": card.apr}
+
+
+def _why_no_answer(resp):
+    """For fallback logs: the specialist never answered, or answered ok=False."""
+    if resp is None:
+        return "unreachable/timed out"
+    return f"answered with an error ({getattr(resp, 'error', None)})"
 
 
 class SpecialistDelegate(dispatch.DirectDelegate):
@@ -92,59 +107,61 @@ class SpecialistDelegate(dispatch.DirectDelegate):
     def __init__(self, ctx: Context):
         self.ctx = ctx
 
+    async def _ask(self, address, req, response_type, timeout):
+        """send_and_receive, logging which route the hop took (local
+        127.0.0.1 or mailbox/Almanac). None on timeout or error, so every
+        caller keeps its fallback."""
+        hop = f"[{req.request_id}] {type(req).__name__} -> {SPECIALIST_NAMES.get(address, address)}"
+        try:
+            resp, status = await self.ctx.send_and_receive(
+                address, req, response_type=response_type, timeout=timeout)
+        except Exception as e:
+            self.ctx.logger.warning(f"{hop} failed: {e!r}")
+            return None
+        self.ctx.logger.info(f"{hop} via {local_routing.route(status)}"
+                             f"{'' if resp is not None else ', no reply in time'}")
+        return resp
+
     async def score_pick(self, request_id, merchant, amount, debt_guard=None):
         req = messages.ScoreRequest(request_id=request_id, merchant=merchant, amount=amount,
                                      debt_guard=debt_guard)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                CARD_SCORER_ADDRESS, req, response_type=messages.ScoreResponse,
-                timeout=SCORE_READ_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(CARD_SCORER_ADDRESS, req, messages.ScoreResponse, SCORE_READ_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Card Scorer answered via agent message")
             ranked = [_card_dict(c) for c in resp.ranked]
             return {"best": _card_dict(resp.best), "ranked": ranked, "reason": resp.reason,
                     "store": {"category": resp.category, "mcc": resp.mcc, "confidence": resp.confidence,
                               "source": resp.source, "note": resp.note}}
-        self.ctx.logger.warning(f"[{request_id}] Card Scorer unreachable/timed out, "
+        self.ctx.logger.warning(f"[{request_id}] Card Scorer {_why_no_answer(resp)}, "
                                  "falling back to direct API")
         return await super().score_pick(request_id, merchant, amount, debt_guard)
 
     async def due_soon(self, request_id):
         req = messages.DueSoonRequest(request_id=request_id)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                PAYMENT_PLANNER_ADDRESS, req, response_type=messages.DueSoonResponse,
-                timeout=READ_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(PAYMENT_PLANNER_ADDRESS, req, messages.DueSoonResponse, READ_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Payment Planner answered via agent message")
             return [{"id": n.id, "kind": n.kind, "title": n.title, "body": n.body,
-                      "actions": n.actions} for n in resp.notifications]
-        self.ctx.logger.warning(f"[{request_id}] Payment Planner unreachable/timed out, "
+                      "actions": n.actions, "data": n.data} for n in resp.notifications]
+        self.ctx.logger.warning(f"[{request_id}] Payment Planner {_why_no_answer(resp)}, "
                                  "falling back to direct API")
         return await super().due_soon(request_id)
 
     async def execute_action(self, action_id, sender, action, note_id):
         req = messages.ExecuteActionRequest(request_id=action_id, sender=sender, action=action,
                                              note_id=note_id)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                PAYMENT_PLANNER_ADDRESS, req, response_type=messages.ExecuteActionResponse,
-                timeout=WRITE_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(PAYMENT_PLANNER_ADDRESS, req, messages.ExecuteActionResponse, WRITE_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{action_id}] Payment Planner executed '{action}' via agent message")
             return {"message": resp.message}
         if resp is not None and not resp.ok:
-            # The specialist answered but the write itself failed server-side
-            # (e.g. already gone) -- nothing to retry, just no message to show.
+            # The specialist answered, so never retry. Only "not found" means
+            # it was already handled; anything else is a real failure.
             self.ctx.logger.warning(f"[{action_id}] Payment Planner reported '{action}' on "
-                                     f"{note_id} failed: {resp.error}")
-            return None
+                                     f"{note_id} failed: {resp.error} (not_found={resp.not_found})")
+            if resp.not_found:
+                return None
+            raise api_client.ApiError(resp.error or "Payment Planner refused the action.")
 
         self.ctx.logger.warning(f"[{action_id}] Payment Planner unreachable/timed out for "
                                  f"'{action}' on {note_id} -- checking whether it already "
@@ -164,15 +181,16 @@ class SpecialistDelegate(dispatch.DirectDelegate):
 
     async def pay(self, action_id, merchant, amount, card):
         req = messages.PayRequest(request_id=action_id, merchant=merchant, amount=amount, card=card)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                PAYMENT_PLANNER_ADDRESS, req, response_type=messages.PayResponse,
-                timeout=WRITE_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(PAYMENT_PLANNER_ADDRESS, req, messages.PayResponse, WRITE_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{action_id}] Payment Planner logged payment via agent message")
             return {"message": resp.message}
+        if resp is not None and not resp.ok:
+            self.ctx.logger.warning(f"[{action_id}] Payment Planner reported pay failed: "
+                                     f"{resp.error} (not_found={resp.not_found})")
+            if resp.not_found:
+                return None
+            raise api_client.ApiError(resp.error or "Payment Planner refused the payment.")
         # /api/pay doesn't exist on this server branch yet (confirmed in
         # api_client.py), so a direct retry here is a guaranteed no-op 404,
         # never a real second write -- plain fallback is safe for now. If
@@ -184,16 +202,11 @@ class SpecialistDelegate(dispatch.DirectDelegate):
 
     async def impact(self, request_id):
         req = messages.ImpactRequest(request_id=request_id)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                PAYMENT_PLANNER_ADDRESS, req, response_type=messages.ImpactResponse,
-                timeout=READ_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(PAYMENT_PLANNER_ADDRESS, req, messages.ImpactResponse, READ_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Payment Planner answered impact via agent message")
             return {"message": resp.message}
-        self.ctx.logger.warning(f"[{request_id}] Payment Planner unreachable/timed out, "
+        self.ctx.logger.warning(f"[{request_id}] Payment Planner {_why_no_answer(resp)}, "
                                  "falling back to direct API")
         return await super().impact(request_id)
 
@@ -202,17 +215,12 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         store is X" chat questions -- separate from Card Scorer's own
         resolver hop inside score_pick."""
         req = messages.ResolveRequest(request_id=request_id, merchant=merchant)
-        try:
-            resp, _status = await self.ctx.send_and_receive(
-                MERCHANT_RESOLVER_ADDRESS, req, response_type=messages.ResolveResponse,
-                timeout=READ_TIMEOUT_SECONDS)
-        except Exception:
-            resp = None
+        resp = await self._ask(MERCHANT_RESOLVER_ADDRESS, req, messages.ResolveResponse, READ_TIMEOUT_SECONDS)
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Merchant Resolver answered via agent message")
             return {"category": resp.category, "mcc": resp.mcc, "confidence": resp.confidence,
                     "source": resp.source, "note": resp.note, "label": resp.label}
-        self.ctx.logger.warning(f"[{request_id}] Merchant Resolver unreachable/timed out, "
+        self.ctx.logger.warning(f"[{request_id}] Merchant Resolver {_why_no_answer(resp)}, "
                                  "falling back to direct API")
         return await super().resolve_merchant(request_id, merchant)
 
@@ -235,18 +243,16 @@ async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage):
 
     text = "".join(item.text for item in msg.content if isinstance(item, TextContent))
     # Diagnostic: one line per incoming chat message, raw text as sent (before
-    # any normalization), plus both identifiers ASI:One gives us. Confirmed
-    # from uagents' own source (asgi.py/mailbox.py pass session=env.session
-    # on every incoming envelope) that `ctx.session` is the sender-controlled,
-    # per-conversation id the chat protocol's Start/EndSessionContent are
-    # designed to bound -- unlike `sender`, which we can't verify stays
-    # mapped to one ASI:One user rather than a shared relay identity, so the
-    # pending-confirmation store below is keyed by session, not sender.
+    # any normalization), plus both identifiers ASI:One gives us. `ctx.session`
+    # is the per-conversation id (uagents' asgi.py/mailbox.py pass
+    # session=env.session on every incoming envelope), but the session id is
+    # chosen by the sender, so it alone can't prove who is talking. The
+    # pending-confirmation store is keyed by sender AND session.
     ctx.logger.info(f"chat <- sender={sender} session={ctx.session} text={text!r}")
     if not text.strip():
         return
 
-    conv_id = str(ctx.session)
+    conv_id = dispatch.conversation_key(sender, ctx.session)
     try:
         reply = await dispatch.build_reply(conv_id, text, ctx.storage, delegate=SpecialistDelegate(ctx))
     except Exception:
@@ -312,6 +318,7 @@ async def rest_pick(ctx: Context, req: PickRequest) -> PickResponse:
 
 if __name__ == "__main__":
     print(f"Pocket Pilot agent address: {agent.address}")
+    print(local_routing.describe())
     print(f"Inspector: https://agentverse.ai/inspect/?uri=http%3A%2F%2F127.0.0.1%3A{AGENT_PORT}"
           f"&address={agent.address}")
     print(f"Card Scorer address (from seed): {CARD_SCORER_ADDRESS}")

@@ -1,6 +1,8 @@
 import asyncio
 import time
 
+import pytest
+
 import api_client
 import dispatch
 from fake_delegate import FakeDelegate, TimeoutThenDirectDelegate
@@ -118,15 +120,29 @@ def test_coach_question(monkeypatch):
     assert "Late fees" in reply
 
 
-def test_missing_endpoint_is_graceful(monkeypatch):
+def test_impact_falls_back_to_wallet_when_endpoint_missing(monkeypatch):
+    """No /api/impact on this server: use the wallet's impact block, the
+    same numbers the app's home screen shows."""
     storage = FakeStorage()
 
-    def missing(**kw):
+    def missing():
         raise api_client.ApiError("/api/impact isn't available on this server yet.", status_code=404)
 
     monkeypatch.setattr(api_client, "impact", missing)
+    monkeypatch.setattr(api_client, "wallet", lambda: {"impact": {
+        "interest_avoided": 16.0, "late_fees_avoided": 39.0, "rewards_this_month": 18.4}})
     reply = run(dispatch.build_reply("alice", "how much have you saved me?", storage))
-    assert "isn't available" in reply
+    assert reply == ("So far Pocket Pilot has saved you $16.00 in interest and $39.00 in late fees, "
+                     "and you've earned $18.40 in rewards this month.")
+
+
+def test_impact_server_down_is_graceful(monkeypatch):
+    def down():
+        raise api_client.ApiError("Can't reach Pocket Pilot's server at http://x.")
+
+    monkeypatch.setattr(api_client, "impact", down)
+    reply = run(dispatch.build_reply("alice", "how much have you saved me?", FakeStorage()))
+    assert "Can't reach" in reply
 
 
 # ---------- debt guard ON: names the new card first, then the cost trade-off ----------
@@ -231,6 +247,7 @@ def test_confirm_yes_with_asi_one_mention_prefix(monkeypatch):
     dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "approve_notification",
                          lambda note_id: {"id": note_id, "message": "Scheduled $640 to Aurum Gold on Oct 29"})
+    monkeypatch.setattr(api_client, "get_notifications", lambda: [])
     mention = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq yes"
     reply = run(dispatch.build_reply("alice", mention, storage))
     assert "Scheduled $640" in reply
@@ -339,7 +356,7 @@ def test_confirm_yes_treats_not_found_error_as_already_done():
     class NotFoundDelegate(FakeDelegate):
         async def execute_action(self, action_id, sender, action, note_id):
             self.calls.append(("execute_action", sender, action, note_id))
-            raise api_client.ApiError("I couldn't find that anymore -- it may already be done.",
+            raise api_client.ApiError("I couldn't find that anymore. It may already be done.",
                                        status_code=404, not_found=True)
 
     reply = run(dispatch.build_reply("alice", "yes", storage, delegate=NotFoundDelegate()))
@@ -358,8 +375,46 @@ def test_confirm_yes_still_surfaces_real_errors():
             raise api_client.ApiError("Can't reach Pocket Pilot's server.")
 
     reply = run(dispatch.build_reply("alice", "yes", storage, delegate=BoomDelegate()))
-    assert "Can't reach" in reply
+    assert reply == "I couldn't do that, so nothing was paid. Try again."
+    assert "Done" not in reply
     assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_confirm_yes_unauthorized_is_a_failure_not_done():
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class UnauthorizedDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("unauthorized")
+
+    reply = run(dispatch.build_reply("alice", "yes", storage, delegate=UnauthorizedDelegate()))
+    assert reply == dispatch.WRITE_FAILED_MESSAGE
+    assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_confirm_no_real_failure_keeps_pending():
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class BoomDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("Can't reach Pocket Pilot's server.")
+
+    reply = run(dispatch.build_reply("alice", "no", storage, delegate=BoomDelegate()))
+    assert reply == dispatch.DISMISS_FAILED_MESSAGE
+    assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_pay_real_failure_says_nothing_was_paid():
+    storage = FakeStorage()
+
+    class BoomDelegate(FakeDelegate):
+        async def pay(self, action_id, merchant, amount, card):
+            raise api_client.ApiError("/api/pay isn't available on this server yet.", status_code=404)
+
+    reply = run(dispatch.build_reply("alice", "I paid $40 at Target", storage, delegate=BoomDelegate()))
+    assert reply == dispatch.WRITE_FAILED_MESSAGE
 
 
 def test_confirm_no_treats_not_found_error_as_already_handled():
@@ -450,7 +505,7 @@ def test_vfc_authorize_surfaces_reason_directly(monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
     reply = run(dispatch.build_reply("alice", "pay with visa flexible at Whole Foods $84.50", storage))
-    assert reply == VFC_DEBIT_RESULT["reason"]
+    assert reply == dispatch.tidy_reply(VFC_DEBIT_RESULT["reason"])
 
 
 def test_vfc_authorize_missing_amount_asks_for_it():
@@ -470,10 +525,341 @@ def test_vfc_authorize_api_down_is_graceful(monkeypatch):
     assert "Can't reach" in reply
 
 
-def test_vfc_rules_summarized(monkeypatch):
+def test_vfc_rules_say_when_each_applies_with_real_thresholds(monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "vfc_rules", lambda: VFC_RULES_RESULT)
+    monkeypatch.setattr(api_client, "get_settings", lambda: {"debt_guard": False})
     reply = run(dispatch.build_reply("alice", "show my Visa rules", storage))
-    assert reply.startswith("Your Visa Flexible rules (simulated, not a real Visa API):")
-    assert "1) Pay with CREDIT on your best rewards card for this store's category." in reply
-    assert "3) Split into 4 equal INSTALLMENTS, 14 days apart." in reply
+    assert reply == (
+        "Your Visa Flexible rules (simulated, not a real Visa API):\n"
+        "1) If you can pay it off in full -> credit on your best rewards card.\n"
+        "2) If you're carrying a balance and checking covers it after a $100 buffer -> debit, $0 interest.\n"
+        "3) If it's $200+ and debit can't cover it -> 4 installments, 14 days apart.\n"
+        "4) Otherwise -> credit on your lowest-APR card.\n\n"
+        "Right now Debt Guard is off, so rule 1 applies to anything you can pay off in full. "
+        "Ask \"how should I pay at Target for $50?\" to check a purchase.")
+
+
+def test_vfc_rules_use_server_thresholds_not_hardcoded(monkeypatch):
+    result = {**VFC_RULES_RESULT, "settings": {"debit_buffer": 50.0, "installment_threshold": 350.0}}
+    monkeypatch.setattr(api_client, "vfc_rules", lambda: result)
+    monkeypatch.setattr(api_client, "get_settings", lambda: {"debt_guard": True})
+    reply = run(dispatch.build_reply("alice", "@agent1qxyz show my visa rules", FakeStorage()))
+    assert "after a $50 buffer" in reply
+    assert "If it's $350+" in reply
+    assert "Right now Debt Guard is on, so rule 2 applies" in reply
+
+
+def test_vfc_rules_name_the_rule_for_the_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    dispatch.set_last_pick(storage, "alice", "Whole Foods", 84.5, kind="vfc")
+    monkeypatch.setattr(api_client, "vfc_rules", lambda: VFC_RULES_RESULT)
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "show my visa rules", storage))
+    assert reply.endswith("Right now, for your $84.50 at Whole Foods, rule 2 applies.")
+
+
+# ---------- conversations are keyed by sender AND session ----------
+
+def test_conversation_key_combines_sender_and_session():
+    assert dispatch.conversation_key("agent1alice", "s1") == "agent1alice:s1"
+
+
+def test_other_sender_in_same_session_cannot_approve():
+    storage = FakeStorage()
+    alice = dispatch.conversation_key("agent1alice", "session-1")
+    mallory = dispatch.conversation_key("agent1mallory", "session-1")
+    dispatch.set_pending(storage, alice, "approve", DUE_NOTE)
+
+    delegate = FakeDelegate(execute_action_result={"message": "Scheduled"})
+    reply = run(dispatch.build_reply(mallory, "yes", storage, delegate=delegate))
+    assert not delegate.calls
+    assert reply == dispatch.NOTHING_PENDING_MESSAGE
+    assert dispatch.get_pending(storage, alice) is not None
+
+    reply = run(dispatch.build_reply(alice, "yes", storage, delegate=delegate))
+    assert reply.startswith("Done.")
+
+
+def test_last_pick_is_per_sender_in_same_session(monkeypatch):
+    storage = FakeStorage()
+    alice = dispatch.conversation_key("agent1alice", "session-1")
+    bob = dispatch.conversation_key("agent1bob", "session-1")
+    dispatch.set_last_pick(storage, alice, "Whole Foods", 84.5)
+    assert dispatch.get_last_pick(storage, bob) is None
+
+
+# ---------- "reset demo" only when DEMO_MODE=on ----------
+
+def _forbid_reset(monkeypatch):
+    def fail():
+        raise AssertionError("demo_reset must not be called")
+
+    monkeypatch.setattr(api_client, "demo_reset", fail)
+
+
+def test_reset_demo_refused_by_default(monkeypatch):
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    _forbid_reset(monkeypatch)
+    reply = run(dispatch.build_reply("alice", "reset demo", FakeStorage()))
+    assert reply == "Demo reset is turned off."
+
+
+def test_reset_demo_refused_when_off(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "off")
+    _forbid_reset(monkeypatch)
+    reply = run(dispatch.build_reply("alice", "reset demo", FakeStorage()))
+    assert reply == "Demo reset is turned off."
+
+
+def test_reset_demo_works_when_on(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "on")
+    called = []
+    monkeypatch.setattr(api_client, "demo_reset", lambda: called.append(1) or {})
+    reply = run(dispatch.build_reply("alice", "@agent1qxyz reset demo", FakeStorage()))
+    assert reply == "Demo reset."
+    assert called == [1]
+
+
+# ---------- Debt Guard flip re-answers the last Visa question ----------
+
+VFC_CREDIT_RESULT = {**VFC_DEBIT_RESULT, "funding": "credit", "card_name": "Aurum Gold",
+                     "rule_id": "credit-if-clear",
+                     "reason": ("Pay with credit on Aurum Gold: you can pay this off in full, so it "
+                                "earns $3.38 (4% on grocery) with no interest.")}
+
+
+def test_debt_guard_on_reanswers_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    guard = {"on": False}
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: guard.update(on=enabled))
+    seen = []
+
+    def authorize(**kw):
+        seen.append(kw)
+        return VFC_DEBIT_RESULT if guard["on"] else VFC_CREDIT_RESULT
+
+    monkeypatch.setattr(api_client, "vfc_authorize", authorize)
+    monkeypatch.setattr(api_client, "pick", lambda **kw: (_ for _ in ()).throw(
+        AssertionError("a Visa question must be re-answered as a Visa question")))
+
+    first = run(dispatch.build_reply("alice", "How should I pay at Whole Foods for $84.50?", storage))
+    assert first.startswith("Pay with credit on Aurum Gold")
+    reply = run(dispatch.build_reply("alice", "turn on debt guard", storage))
+    assert reply.startswith("Debt Guard is on. Same purchase, new answer: Pay with debit")
+    assert seen[-1] == {"merchant": "Whole Foods", "amount": 84.5}
+
+
+def test_debt_guard_off_reanswers_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    dispatch.set_last_pick(storage, "alice", "Whole Foods", 84.5, kind="vfc")
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: {"debt_guard": enabled})
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_CREDIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "@agent1qabc turn off debt guard", storage))
+    assert reply.startswith("Debt Guard is off. Same purchase, new answer: Pay with credit on Aurum Gold")
+
+
+def test_card_pick_after_visa_question_wins(monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_CREDIT_RESULT)
+    monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: {"debt_guard": enabled})
+    run(dispatch.build_reply("alice", "how should I pay at Whole Foods for $84.50", storage))
+    run(dispatch.build_reply("alice", "which card at Target for $20", storage))
+    reply = run(dispatch.build_reply("alice", "turn off debt guard", storage))
+    assert "Same purchase, new pick" in reply
+
+
+# ---------- no "--" in replies (it looks odd in ASI:One) ----------
+
+def test_tidy_reply_turns_double_dash_into_sentence_break():
+    assert dispatch.tidy_reply("charging interest today -- debit costs $0.") == \
+        "charging interest today. Debit costs $0."
+    assert dispatch.tidy_reply("Done. -- next one") == "Done. Next one"
+    assert dispatch.tidy_reply("No dashes here, $84.50 - fine.") == "No dashes here, $84.50 - fine."
+
+
+def test_visa_reason_has_no_double_dash(monkeypatch):
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "how should I pay at Whole Foods for $84.50", FakeStorage()))
+    assert "--" not in reply
+    assert reply == ("Pay with debit: you're carrying a balance, so credit would start charging "
+                     "interest today. Debit costs $0 in interest. Checking has $380.00, minus a "
+                     "$100.00 safety buffer, leaves $280.00. Enough for $84.50.")
+
+
+# ---------- Part C: the app's screens, in chat ----------
+
+from wallet_fixture import FEE_VOYAGER_NOTE, HIGH_USAGE_CARD, PAYBACK_AURUM, WALLET  # noqa: E402
+
+MENTION = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq"
+
+
+@pytest.mark.parametrize("text", [
+    "Show my cards", "how am I doing?", f"{MENTION} show my cards",
+    "“How am I doing?”", f"{MENTION} how’s my wallet",
+])
+def test_wallet_overview(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    assert reply.startswith("Your cards:\n- Aurum Gold: $640.00 of $5,000.00 (13% used), 29.9% APR, due Oct 30")
+    assert reply.endswith("Total: $2,140.00 of $24,500.00 (9% used). Debt Guard is off.")
+
+
+def test_which_of_my_cards_with_amount_is_still_a_pick(monkeypatch):
+    monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
+    reply = run(dispatch.build_reply("alice", "which of my cards at Whole Foods for $84.50", FakeStorage()))
+    assert "Zero Intro" in reply and "Your cards" not in reply
+
+
+@pytest.mark.parametrize("text", [
+    "Tell me about Aurum Gold", "tell me about aurum", f"{MENTION} tell me about my Aurum card",
+    "\u201cTell me about Aurum Gold\u201d",
+])
+def test_card_details(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    storage = FakeStorage()
+    reply = run(dispatch.build_reply("alice", text, storage))
+    assert reply == (
+        "Aurum Gold (ending 4021): 4x points on groceries.\n"
+        "$640.00 of $5,000.00 (13% used), 29.9% APR, due Oct 30. No annual fee. "
+        "$112.00 in rewards this year.\n"
+        "Usage is low, so there's nothing extra to pay before the statement closes.")
+    assert dispatch.get_last_card(storage, "alice") == "aurum"
+
+
+def test_card_details_includes_usage_tip(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: {**WALLET, "cards": [HIGH_USAGE_CARD]})
+    reply = run(dispatch.build_reply("alice", "tell me about spin", FakeStorage()))
+    assert reply.endswith("Pay $450.00 before Nov 1 to report usage under 30%.")
+
+
+def test_card_details_unknown_card_lists_cards(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", f"{MENTION} tell me about my Sapphire\u2019s card", FakeStorage()))
+    assert reply == ("I don't see a card called \"Sapphire's\". "
+                     "Your cards: Aurum Gold, Steady 2%, Zero Intro, Spin 5%, Voyager.")
+
+
+def test_tell_me_about_a_credit_topic_goes_to_coach(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "ask_coach", lambda q, history=None: {"answer": "A score is..."})
+    reply = run(dispatch.build_reply("alice", "tell me about credit scores", FakeStorage()))
+    assert reply == "A score is..."
+
+
+AURUM_PAYBACK_REPLY = ("Aurum Gold: $640.00 at 29.9% APR.\n"
+                       "- Pay in full: 1 month, $0.00 interest.\n"
+                       "- Minimum only: 42 months (about 3.5 years), $391.85 interest.")
+
+
+@pytest.mark.parametrize("text", [
+    "How long to pay off Aurum Gold?", "how long to pay off aurum", f"{MENTION} how long to pay off my aurum card",
+    "what if I only pay the minimum on Aurum Gold?", "\u201cWhat if I only pay the minimum on aurum?\u201d",
+])
+def test_payback(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    asked = []
+    monkeypatch.setattr(api_client, "payback", lambda card_id: asked.append(card_id) or PAYBACK_AURUM)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    assert reply == AURUM_PAYBACK_REPLY
+    assert asked == ["aurum"]
+
+
+def test_minimum_question_follows_the_last_card_asked_about(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "payback", lambda card_id: PAYBACK_AURUM)
+    storage = FakeStorage()
+    run(dispatch.build_reply("alice", "tell me about aurum", storage))
+    reply = run(dispatch.build_reply("alice", f"{MENTION} what if I only pay the minimum?", storage))
+    assert reply == AURUM_PAYBACK_REPLY
+
+
+def test_minimum_question_without_a_card_asks_which(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", "what if I only pay the minimum?", FakeStorage()))
+    assert reply == "Which card? Your cards: Aurum Gold, Steady 2%, Zero Intro, Spin 5%, Voyager."
+
+
+def test_payback_unknown_card_lists_cards(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", "how long to pay off my Sapphire", FakeStorage()))
+    assert reply.startswith("I don't see a card called \"Sapphire\".")
+
+
+def test_payback_zero_balance(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "payback", lambda card_id: {
+        "apr": 0.0, "balance": 0.0, "minimum_only": {"interest": 0.0, "months": 0},
+        "pay_in_full": {"interest": 0.0, "months": 0}})
+    reply = run(dispatch.build_reply("alice", "how long to pay off zero intro", FakeStorage()))
+    assert reply == "Zero Intro has no balance, so there's nothing to pay off."
+
+
+VOYAGER_FEE_REPLY = (
+    "Voyager's $95.00 annual fee comes up Nov 15. It earned you $41.00 this year, $54.00 less "
+    "than the fee, so it isn't paying for itself. Switch to Voyager Basic (no annual fee) before "
+    "Nov 15, and keep the account open: closing it can shorten your credit history and raise your "
+    "usage. This is advice only, so I won't change anything.")
+
+
+@pytest.mark.parametrize("text", [
+    "Is my Voyager fee worth it?", "is my voyager fee worth it", f"{MENTION} is my Voyager fee worth it?",
+    "\u201cIs my annual fee worth it?\u201d", f"{MENTION} Voyager\u2019s annual fee",
+])
+def test_annual_fee_check(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[DUE_NOTE, FEE_VOYAGER_NOTE])
+    reply = run(dispatch.build_reply("alice", text, FakeStorage(), delegate=delegate))
+    assert reply == VOYAGER_FEE_REPLY
+    assert not [c for c in delegate.calls if c[0] in ("execute_action", "pay")]
+
+
+def test_annual_fee_worth_it(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    note = {**FEE_VOYAGER_NOTE, "data": {**FEE_VOYAGER_NOTE["data"], "value": 120.0, "net": 25.0,
+                                         "worth_it": True}}
+    delegate = FakeDelegate(due_soon_result=[note])
+    reply = run(dispatch.build_reply("alice", "is my voyager fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == ("Voyager's $95.00 annual fee comes up Nov 15. It earned you $120.00 this year, "
+                     "$25.00 more than the fee, so it's paying for itself.")
+
+
+def test_annual_fee_for_a_card_without_one(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[FEE_VOYAGER_NOTE])
+    reply = run(dispatch.build_reply("alice", "is my aurum fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == "Aurum Gold has no annual fee."
+
+
+def test_annual_fee_not_coming_up(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[])
+    reply = run(dispatch.build_reply("alice", "is my annual fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == "Voyager's $95.00 annual fee isn't coming up soon, so there's nothing to decide yet."
+
+
+@pytest.mark.parametrize("text", ["help", f"{MENTION} help", "“help”", "what can you do?"])
+def test_help_is_grouped(monkeypatch, text):
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    pay, deadline, credit = (reply.index(h) for h in
+                             ("Pay smart\n", "Never miss a deadline\n", "Understand your credit\n"))
+    assert pay < deadline < credit
+    for example in ("Show my Visa rules", "Show my cards", "Is my Voyager fee worth it?",
+                    "Tell me about Aurum Gold", "How long to pay off Aurum Gold?", "Anything due soon?"):
+        assert example in reply
+    assert "reset demo" not in reply
+
+
+def test_help_mentions_reset_only_in_demo_mode(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "on")
+    assert "reset demo" in run(dispatch.build_reply("alice", "help", FakeStorage()))
+
+
+@pytest.mark.parametrize("example", [
+    line.split('"')[1] for line in dispatch.HELP_TEXT.splitlines() if line.startswith("- \"")])
+def test_every_help_example_parses_to_a_real_intent(example):
+    """No help example may fall through to "Not sure what you mean"."""
+    import intents
+    assert intents.parse_intent(example)["intent"] not in ("unknown", "help")
