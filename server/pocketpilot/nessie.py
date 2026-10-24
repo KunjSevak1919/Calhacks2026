@@ -8,13 +8,21 @@ If NESSIE_API_KEY is not set, or Nessie is unreachable, we fall back to
 data/demo_user.json so the app always runs.
 """
 import os
+import re
 
 import requests
 
 from . import data
 
-BASE = "http://api.nessieisreal.com"
+BASE = "https://api.nessieisreal.com"
 TIMEOUT = 8
+_KEY_PARAM = re.compile(r"(key=)[^&\s'\"]+")
+
+
+def scrub(text, key=None):
+    """Remove the API key from a URL or error message before it is shown."""
+    text = _KEY_PARAM.sub(r"\1***", str(text))
+    return text.replace(key, "***") if key else text
 
 
 class Nessie:
@@ -25,15 +33,21 @@ class Nessie:
     def enabled(self):
         return bool(self.key)
 
-    def _get(self, path):
-        r = requests.get(f"{BASE}{path}", params={"key": self.key}, timeout=TIMEOUT)
-        r.raise_for_status()
+    def _request(self, method, path, **kw):
+        try:
+            r = requests.request(method, f"{BASE}{path}", params={"key": self.key},
+                                 timeout=TIMEOUT, **kw)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            # requests puts the full URL (with ?key=...) in its messages; never leak it.
+            raise type(e)(scrub(e, self.key), response=e.response) from None
         return r.json()
 
+    def _get(self, path):
+        return self._request("GET", path)
+
     def _post(self, path, body):
-        r = requests.post(f"{BASE}{path}", params={"key": self.key}, json=body, timeout=TIMEOUT)
-        r.raise_for_status()
-        return r.json()
+        return self._request("POST", path, json=body)
 
     def accounts(self, customer_id):
         return self._get(f"/customers/{customer_id}/accounts")
@@ -73,7 +87,9 @@ def load_profile(customer_id=None):
             profile["accounts"][card_id]["nessie_id"] = acct["_id"]
             for p in client.purchases(acct["_id"])[-25:]:
                 m = client.merchant(p["merchant_id"])
-                history.append({"merchant": m.get("name"), "categories": m.get("category", [])})
+                cats = m.get("category") or []
+                history.append({"merchant": m.get("name"),
+                                "categories": [cats] if isinstance(cats, str) else list(cats)})
         profile["nessie_history"] = history
         profile["source"] = "nessie"
     except requests.RequestException as e:
