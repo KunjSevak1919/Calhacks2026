@@ -77,7 +77,8 @@ class Ledger:
 
     def record_blocked(self, endpoint, usd, reason):
         self._append(SPENT_FILE, {"type": "blocked", "at": self._clock().isoformat(),
-                                  "endpoint": endpoint, "usd": str(usd), "reason": reason})
+                                  "endpoint": endpoint, "usd": None if usd is None else str(usd),
+                                  "reason": reason})
 
     def signed_today_usd(self):
         today = self._clock().date().isoformat()
