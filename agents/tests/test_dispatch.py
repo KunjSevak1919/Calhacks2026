@@ -1,6 +1,8 @@
 import asyncio
 import time
 
+import pytest
+
 import api_client
 import dispatch
 from fake_delegate import FakeDelegate, TimeoutThenDirectDelegate
@@ -670,3 +672,27 @@ def test_visa_reason_has_no_double_dash(monkeypatch):
     assert reply == ("Pay with debit: you're carrying a balance, so credit would start charging "
                      "interest today. Debit costs $0 in interest. Checking has $380.00, minus a "
                      "$100.00 safety buffer, leaves $280.00. Enough for $84.50.")
+
+
+# ---------- Part C: the app's screens, in chat ----------
+
+from wallet_fixture import FEE_VOYAGER_NOTE, HIGH_USAGE_CARD, PAYBACK_AURUM, WALLET  # noqa: E402
+
+MENTION = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq"
+
+
+@pytest.mark.parametrize("text", [
+    "Show my cards", "how am I doing?", f"{MENTION} show my cards",
+    "“How am I doing?”", f"{MENTION} how’s my wallet",
+])
+def test_wallet_overview(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    assert reply.startswith("Your cards:\n- Aurum Gold: $640.00 of $5,000.00 (13% used), 29.9% APR, due Oct 30")
+    assert reply.endswith("Total: $2,140.00 of $24,500.00 (9% used). Debt Guard is off.")
+
+
+def test_which_of_my_cards_with_amount_is_still_a_pick(monkeypatch):
+    monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
+    reply = run(dispatch.build_reply("alice", "which of my cards at Whole Foods for $84.50", FakeStorage()))
+    assert "Zero Intro" in reply and "Your cards" not in reply

@@ -41,6 +41,8 @@ CARRYING_BALANCE_WORDS = ("carrying a balance", "carry a balance", "i'm in debt"
 PAID_OFF_WORDS = ("paid off", "no balance", "not carrying")
 COACH_HINT_WORDS = ("why", "how do", "how does", "what is", "what's", "explain", "credit score", "late fee")
 VFC_RULES_WORDS = ("visa rules", "vfc rules", "my rules", "flexible credential rules")
+WALLET_WORDS = ("show my cards", "show me my cards", "list my cards", "my cards", "how am i doing",
+                "my wallet", "my balances", "show my balances")
 VFC_AUTHORIZE_WORDS = ("how should i pay", "which way should i pay", "visa flexible", "vfc")
 
 
@@ -95,6 +97,11 @@ def parse_intent(text, has_pending=False):
 
     if any(w in low for w in RESET_WORDS):
         return {"intent": "reset_demo", "raw": t}
+
+    # Card-info questions never carry a purchase amount; "which of my cards
+    # at Target for $20" is still a pick.
+    if _extract_amount(t) is None and any(w in low for w in WALLET_WORDS):
+        return {"intent": "wallet", "raw": t}
 
     if any(w in low for w in DEBT_GUARD_WORDS) or any(w in low for w in CARRYING_BALANCE_WORDS):
         turn_off = any(w in low for w in PAID_OFF_WORDS) or "off" in low or "disable" in low
@@ -167,7 +174,7 @@ def parse_intent_llm(text):
         "Reply with ONLY strict JSON, no prose, matching this shape: "
         '{"intent": one of ["pick","debt_guard_on","debt_guard_off","notifications",'
         '"confirm_yes","confirm_no","pay","impact","store_kind","vfc_authorize","vfc_rules",'
-        '"coach","reset_demo","help","unknown"],'
+        '"coach","reset_demo","help","wallet","unknown"],'
         '"merchant": string or null, "amount": number or null, "question": string or null}. '
         f"Message: {text!r}"
     )

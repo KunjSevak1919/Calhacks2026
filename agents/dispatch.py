@@ -19,6 +19,7 @@ import uuid
 from datetime import date as _date
 
 import api_client
+import card_replies
 import intents
 
 PENDING_TTL_SECONDS = 600  # 10 minutes
@@ -381,6 +382,15 @@ def demo_mode_on():
     return os.getenv("DEMO_MODE", "off").strip().lower() == "on"
 
 
+def handle_wallet():
+    """No specialist owns the wallet (read-only), so a direct Flask call,
+    same as Visa and coach."""
+    try:
+        return card_replies.format_wallet(api_client.wallet())
+    except api_client.ApiError as e:
+        return str(e)
+
+
 def handle_reset_demo():
     if not demo_mode_on():
         return "Demo reset is turned off."
@@ -529,6 +539,8 @@ async def _route(sender, text, storage, delegate=None):
         return handle_coach(parsed.get("question") or text)
     if intent == "reset_demo":
         return handle_reset_demo()
+    if intent == "wallet":
+        return handle_wallet()
     if intent == "vfc_authorize":
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":
