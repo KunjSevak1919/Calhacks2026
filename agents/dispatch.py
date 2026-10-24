@@ -13,6 +13,7 @@ dispatch.py doesn't need to know or care which path produced the answer.
 """
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import date as _date
@@ -406,14 +407,74 @@ def handle_vfc_authorize(storage, sender, parsed):
     return result.get("reason") or "Not sure how to fund that purchase."
 
 
-def handle_vfc_rules():
+def _whole_money(value):
+    """$100 for whole dollars, $12.50 otherwise; "—" if missing."""
+    if value is None:
+        return "—"
+    return f"${value:,.0f}" if float(value).is_integer() else f"${value:,.2f}"
+
+
+INSTALLMENTS_RE = re.compile(r"(\d+)\s+equal\s+installments,\s*(\d+)\s+days", re.IGNORECASE)
+
+
+def _rule_line(rule, settings):
+    """When the rule applies -> what it does, with the server's thresholds."""
+    rid = rule.get("id")
+    if rid == "credit-if-clear":
+        return "If you can pay it off in full -> credit on your best rewards card."
+    if rid == "debit-if-carrying":
+        return (f"If you're carrying a balance and checking covers it after a "
+                f"{_whole_money(settings.get('debit_buffer'))} buffer -> debit, $0 interest.")
+    if rid == "installments-if-large":
+        m = INSTALLMENTS_RE.search(rule.get("then", ""))
+        plan = f"{m.group(1)} installments, {m.group(2)} days apart" if m else rule.get("then", "")
+        return (f"If it's {_whole_money(settings.get('installment_threshold'))}+ and debit "
+                f"can't cover it -> {plan}.")
+    if rid == "credit-lowest-apr-otherwise":
+        return "Otherwise -> credit on your lowest-APR card."
+    return f"If {rule.get('when', '').rstrip('.')} -> {rule.get('then', '').rstrip('.')}."
+
+
+def _rule_number(rules, rule_id):
+    ids = [r.get("id") for r in rules]
+    return ids.index(rule_id) + 1 if rule_id in ids else None
+
+
+def _rule_now(storage, sender, rules):
+    """Which rule applies to this user right now: for their last Visa
+    question if there is one, otherwise from Debt Guard's state."""
+    last = get_last_pick(storage, sender)
+    try:
+        if last and last.get("kind") == "vfc" and last.get("amount") is not None:
+            result = api_client.vfc_authorize(merchant=last.get("merchant"), amount=last["amount"])
+            n = _rule_number(rules, result.get("rule_id"))
+            if n:
+                where = f" at {last['merchant']}" if last.get("merchant") else ""
+                return f"Right now, for your ${last['amount']:,.2f}{where}, rule {n} applies."
+            return None
+        guard = api_client.get_settings().get("debt_guard")
+    except api_client.ApiError:
+        return None
+    clear, debit = _rule_number(rules, "credit-if-clear"), _rule_number(rules, "debit-if-carrying")
+    if not guard and clear:
+        return (f"Right now Debt Guard is off, so rule {clear} applies to anything you can pay off "
+                "in full. Ask \"how should I pay at Target for $50?\" to check a purchase.")
+    if guard and debit:
+        return (f"Right now Debt Guard is on, so rule {debit} applies when checking covers the "
+                "purchase; if not, a later rule does.")
+    return None
+
+
+def handle_vfc_rules(storage, sender):
     try:
         result = api_client.vfc_rules()
     except api_client.ApiError as e:
         return str(e)
-    lines = [r["then"] for r in result.get("rules", [])]
-    numbered = " ".join(f"{i + 1}) {line}." for i, line in enumerate(lines))
-    return f"Your Visa Flexible rules (simulated, not a real Visa API): {numbered}"
+    rules, settings = result.get("rules", []), result.get("settings") or {}
+    lines = [f"{i + 1}) {_rule_line(r, settings)}" for i, r in enumerate(rules)]
+    reply = "Your Visa Flexible rules (simulated, not a real Visa API):\n" + "\n".join(lines)
+    now = _rule_now(storage, sender, rules)
+    return f"{reply}\n\n{now}" if now else reply
 
 
 async def build_reply(sender, text, storage, delegate=None):
@@ -454,5 +515,5 @@ async def build_reply(sender, text, storage, delegate=None):
     if intent == "vfc_authorize":
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":
-        return handle_vfc_rules()
+        return handle_vfc_rules(storage, sender)
     return "Not sure what you mean. Say \"help\" to see what I can do."

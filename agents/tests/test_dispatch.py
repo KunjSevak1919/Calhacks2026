@@ -509,13 +509,38 @@ def test_vfc_authorize_api_down_is_graceful(monkeypatch):
     assert "Can't reach" in reply
 
 
-def test_vfc_rules_summarized(monkeypatch):
+def test_vfc_rules_say_when_each_applies_with_real_thresholds(monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "vfc_rules", lambda: VFC_RULES_RESULT)
+    monkeypatch.setattr(api_client, "get_settings", lambda: {"debt_guard": False})
     reply = run(dispatch.build_reply("alice", "show my Visa rules", storage))
-    assert reply.startswith("Your Visa Flexible rules (simulated, not a real Visa API):")
-    assert "1) Pay with CREDIT on your best rewards card for this store's category." in reply
-    assert "3) Split into 4 equal INSTALLMENTS, 14 days apart." in reply
+    assert reply == (
+        "Your Visa Flexible rules (simulated, not a real Visa API):\n"
+        "1) If you can pay it off in full -> credit on your best rewards card.\n"
+        "2) If you're carrying a balance and checking covers it after a $100 buffer -> debit, $0 interest.\n"
+        "3) If it's $200+ and debit can't cover it -> 4 installments, 14 days apart.\n"
+        "4) Otherwise -> credit on your lowest-APR card.\n\n"
+        "Right now Debt Guard is off, so rule 1 applies to anything you can pay off in full. "
+        "Ask \"how should I pay at Target for $50?\" to check a purchase.")
+
+
+def test_vfc_rules_use_server_thresholds_not_hardcoded(monkeypatch):
+    result = {**VFC_RULES_RESULT, "settings": {"debit_buffer": 50.0, "installment_threshold": 350.0}}
+    monkeypatch.setattr(api_client, "vfc_rules", lambda: result)
+    monkeypatch.setattr(api_client, "get_settings", lambda: {"debt_guard": True})
+    reply = run(dispatch.build_reply("alice", "@agent1qxyz show my visa rules", FakeStorage()))
+    assert "after a $50 buffer" in reply
+    assert "If it's $350+" in reply
+    assert "Right now Debt Guard is on, so rule 2 applies" in reply
+
+
+def test_vfc_rules_name_the_rule_for_the_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    dispatch.set_last_pick(storage, "alice", "Whole Foods", 84.5, kind="vfc")
+    monkeypatch.setattr(api_client, "vfc_rules", lambda: VFC_RULES_RESULT)
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "show my visa rules", storage))
+    assert reply.endswith("Right now, for your $84.50 at Whole Foods, rule 2 applies.")
 
 
 # ---------- conversations are keyed by sender AND session ----------
