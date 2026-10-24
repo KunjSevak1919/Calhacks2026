@@ -9,6 +9,13 @@ import json
 import os
 import re
 
+# ASI:One puts the literal agent address in the message text when a user
+# @-mentions an agent, e.g. "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3t
+# m2jxvjwhkunvessq yes" (confirmed: https://asi1.ai/blog/mastering-at-mentions).
+# Addresses are bech32 (lowercase letters + digits only), always "agent1...".
+MENTION_RE = re.compile(r"@agent1[a-z0-9]+", re.IGNORECASE)
+STRIP_CHARS = " \t\n.,!?;:"
+
 AMOUNT_RE = re.compile(r"\$\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*dollars?", re.IGNORECASE)
 MERCHANT_AT_RE = re.compile(
     r"\bat\s+([A-Za-z0-9&'.\- ]+?)(?=\s+(?:for|with)\b|[.,!?]|\s+\$|$)", re.IGNORECASE
@@ -55,9 +62,19 @@ def _extract_card(text):
     return m.group(1).strip().rstrip(".,!?")
 
 
+def normalize_text(text):
+    """Strip ASI:One's "@agent1q..." mention and surrounding whitespace/
+    punctuation before intent matching, so a reply like "@agent1qxyz... yes"
+    still matches "yes" exactly. Only trims from the ends -- amounts like
+    "$84.50" keep their internal punctuation."""
+    cleaned = MENTION_RE.sub(" ", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(STRIP_CHARS)
+    return cleaned
+
+
 def parse_intent(text, has_pending=False):
     """Deterministic intent parse. Returns a dict with at least an "intent" key."""
-    t = (text or "").strip()
+    t = normalize_text(text)
     low = t.lower()
 
     if has_pending:

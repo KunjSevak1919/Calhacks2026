@@ -16,6 +16,7 @@ class CardSummary(Model):
     reward: Optional[float] = None
     interest: Optional[float] = None
     rate_label: Optional[str] = None
+    apr: Optional[float] = None
 
 
 class ScoreRequest(Model):

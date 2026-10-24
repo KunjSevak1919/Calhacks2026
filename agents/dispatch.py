@@ -14,6 +14,7 @@ dispatch.py doesn't need to know or care which path produced the answer.
 import logging
 import time
 import uuid
+from datetime import date as _date
 
 import api_client
 import intents
@@ -105,7 +106,47 @@ def format_pick(result, merchant, amount):
 
 
 def _format_notification(note):
-    return f"{note['title']}. {note['body']}"
+    title = note["title"]
+    sep = "" if title.endswith((".", "!", "?")) else "."
+    return f"{title}{sep} {note['body']}"
+
+
+def _nice_date(iso):
+    try:
+        d = _date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or ""
+    return f"{d:%b} {d.day}"
+
+
+def _propose_action(note):
+    """A single concrete, forwardable action sentence for this alert, or
+    None if this kind doesn't have one (e.g. an annual-fee review -- there's
+    nothing to say "yes" to)."""
+    data = note.get("data") or {}
+    if note["kind"] == "due":
+        amount, name, when = data.get("suggested"), data.get("name"), data.get("pay_on")
+        if amount is not None and name and when:
+            return f"Reply yes to schedule ${amount:,.0f} to {name} on {_nice_date(when)}."
+    elif note["kind"] == "subscription":
+        return "Reply yes to cancel it."
+    return None
+
+
+def _format_debt_guard_pick(result):
+    """Names the new card first, then -- if a different card would have
+    earned more in rewards -- says what that card would have cost in
+    interest, so the trade-off is explicit instead of a vague re-pick."""
+    ranked = result["ranked"]
+    best = ranked[0]
+    reply = f"Use {best['name']} instead."
+    if ranked and all(c.get("reward") is not None for c in ranked):
+        top_reward = max(ranked, key=lambda c: c["reward"])
+        if top_reward["name"] != best["name"] and top_reward.get("interest") is not None:
+            reply += (f" {top_reward['name']} would earn ${top_reward['reward']:.2f}, but its "
+                      f"{top_reward.get('apr', 0):g}% APR would cost ${top_reward['interest']:.2f} "
+                      "over 3 months.")
+    return reply
 
 
 async def handle_pick(storage, sender, parsed, delegate):
@@ -127,14 +168,17 @@ async def handle_debt_guard(storage, sender, enabled, delegate):
         api_client.set_debt_guard(enabled)
     except api_client.ApiError as e:
         return str(e)
-    reply = f"Debt Guard is now {'on' if enabled else 'off'}."
+    reply = f"Debt Guard is {'on' if enabled else 'off'}."
     last_pick = get_last_pick(storage, sender)
     if last_pick and last_pick.get("amount") is not None:
         try:
             request_id = str(uuid.uuid4())
             result = await delegate.score_pick(request_id, last_pick.get("merchant"), last_pick["amount"])
-            reply += " Same purchase, new pick: " + format_pick(result, last_pick.get("merchant"),
-                                                                  last_pick["amount"])
+            if enabled:
+                reply += " " + _format_debt_guard_pick(result)
+            else:
+                reply += " Same purchase, new pick: " + format_pick(result, last_pick.get("merchant"),
+                                                                      last_pick["amount"])
         except api_client.ApiError:
             pass
     return reply
@@ -149,28 +193,46 @@ async def handle_notifications(storage, sender, delegate):
     if not notes:
         return "Nothing due or waiting on you right now."
     top = notes[:3]
-    lines = [_format_notification(n) for n in top]
-    reply = " ".join(lines)
-    first = notes[0]
-    if first.get("actions"):
-        set_pending(storage, sender, "approve", first["id"], first["title"])
-        reply += " Want me to take care of it? (yes/no)"
+    reply = " ".join(_format_notification(n) for n in top)
+    action = _propose_action(top[0])
+    if action:
+        set_pending(storage, sender, "approve", top[0]["id"], top[0]["title"])
+        reply += " " + action
     return reply
+
+
+NOTHING_PENDING_MESSAGE = (
+    "There's nothing waiting for your OK right now. "
+    "Ask \"anything due soon?\" to see what I can do."
+)
 
 
 async def handle_confirm_yes(storage, sender, delegate):
     pending = get_pending(storage, sender)
     if not pending:
-        return "I don't have anything waiting on a yes right now."
+        return NOTHING_PENDING_MESSAGE
     request_id = str(uuid.uuid4())
     try:
         result = await delegate.execute_action(request_id, sender, "approve", pending["note_id"])
     except api_client.ApiError as e:
         return str(e)
     clear_pending(storage, sender)
-    if result is None:
-        return "That one's already handled."
-    return result.get("message", "Done.")
+    message = (result or {}).get("message", "Done.")
+    sep = "" if message.endswith((".", "!", "?")) else "."
+    reply = f"Done. {message}{sep}"
+
+    try:
+        notes = await delegate.due_soon(str(uuid.uuid4()))
+    except api_client.ApiError:
+        notes = None
+    if notes:
+        nxt = notes[0]
+        reply += f" Next: {_format_notification(nxt)}"
+        action = _propose_action(nxt)
+        if action:
+            set_pending(storage, sender, "approve", nxt["id"], nxt["title"])
+            reply += " " + action
+    return reply
 
 
 async def handle_confirm_no(storage, sender, delegate):

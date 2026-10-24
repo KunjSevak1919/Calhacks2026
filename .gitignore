@@ -8,3 +8,4 @@ node_modules/
 dist/
 *.db
 .DS_Store
+agent1*_data.json

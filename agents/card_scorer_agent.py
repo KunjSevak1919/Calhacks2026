@@ -40,6 +40,7 @@ def _card_summary(card):
         reward=card.get("reward"),
         interest=card.get("interest"),
         rate_label=card.get("rate_label"),
+        apr=card.get("apr"),
     )
 
 
