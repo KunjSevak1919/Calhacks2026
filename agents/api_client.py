@@ -54,7 +54,7 @@ def _request(method, path, **kwargs):
             # Route exists; this specific id/resource wasn't found -- e.g.
             # confirmed live: approving an already-approved notification
             # returns {"error": "No notification called due-aurum"}, 404.
-            raise ApiError("I couldn't find that anymore -- it may already be done.",
+            raise ApiError("I couldn't find that anymore. It may already be done.",
                             status_code=404, not_found=True)
         raise ApiError(f"{path} isn't available on this server yet.", status_code=404)
     if not resp.ok:

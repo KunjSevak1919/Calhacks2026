@@ -340,7 +340,7 @@ def test_confirm_yes_treats_not_found_error_as_already_done():
     class NotFoundDelegate(FakeDelegate):
         async def execute_action(self, action_id, sender, action, note_id):
             self.calls.append(("execute_action", sender, action, note_id))
-            raise api_client.ApiError("I couldn't find that anymore -- it may already be done.",
+            raise api_client.ApiError("I couldn't find that anymore. It may already be done.",
                                        status_code=404, not_found=True)
 
     reply = run(dispatch.build_reply("alice", "yes", storage, delegate=NotFoundDelegate()))
@@ -489,7 +489,7 @@ def test_vfc_authorize_surfaces_reason_directly(monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
     reply = run(dispatch.build_reply("alice", "pay with visa flexible at Whole Foods $84.50", storage))
-    assert reply == VFC_DEBIT_RESULT["reason"]
+    assert reply == dispatch.tidy_reply(VFC_DEBIT_RESULT["reason"])
 
 
 def test_vfc_authorize_missing_amount_asks_for_it():
@@ -652,3 +652,21 @@ def test_card_pick_after_visa_question_wins(monkeypatch):
     run(dispatch.build_reply("alice", "which card at Target for $20", storage))
     reply = run(dispatch.build_reply("alice", "turn off debt guard", storage))
     assert "Same purchase, new pick" in reply
+
+
+# ---------- no "--" in replies (it looks odd in ASI:One) ----------
+
+def test_tidy_reply_turns_double_dash_into_sentence_break():
+    assert dispatch.tidy_reply("charging interest today -- debit costs $0.") == \
+        "charging interest today. Debit costs $0."
+    assert dispatch.tidy_reply("Done. -- next one") == "Done. Next one"
+    assert dispatch.tidy_reply("No dashes here, $84.50 - fine.") == "No dashes here, $84.50 - fine."
+
+
+def test_visa_reason_has_no_double_dash(monkeypatch):
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "how should I pay at Whole Foods for $84.50", FakeStorage()))
+    assert "--" not in reply
+    assert reply == ("Pay with debit: you're carrying a balance, so credit would start charging "
+                     "interest today. Debit costs $0 in interest. Checking has $380.00, minus a "
+                     "$100.00 safety buffer, leaves $280.00. Enough for $84.50.")

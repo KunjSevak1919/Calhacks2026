@@ -477,8 +477,25 @@ def handle_vfc_rules(storage, sender):
     return f"{reply}\n\n{now}" if now else reply
 
 
+DOUBLE_DASH_RE = re.compile(r"\s*--\s*(\S?)")
+
+
+def tidy_reply(text):
+    """ASI:One shows "--" literally, which reads oddly. Turn each one into a
+    plain sentence break: "today -- debit costs" -> "today. Debit costs"."""
+    def _break(m):
+        before = text[:m.start()].rstrip()
+        stop = "" if not before or before.endswith((".", "!", "?", ":")) else "."
+        return f"{stop} {m.group(1).upper()}" if m.group(1) else stop
+    return DOUBLE_DASH_RE.sub(_break, text)
+
+
 async def build_reply(sender, text, storage, delegate=None):
     """Text + per-sender storage in, reply string out."""
+    return tidy_reply(await _route(sender, text, storage, delegate))
+
+
+async def _route(sender, text, storage, delegate=None):
     delegate = delegate or DirectDelegate()
     pending = get_pending(storage, sender)
     parsed = intents.parse_intent(text, has_pending=bool(pending))
