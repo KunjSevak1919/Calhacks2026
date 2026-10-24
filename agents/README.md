@@ -124,6 +124,37 @@ addresses from their seeds at startup, and Payment Planner computes Pocket
 Pilot's address to know which sender may ask for writes. No separate
 address variables to keep in sync.
 
+## Local routing between our own agents (`LOCAL_AGENT_ROUTING=on`, default)
+
+On slow venue Wi-Fi, Agentverse lookups time out (uagents' Almanac API
+resolver retries 10 times at 1s each: "Almanac API lookup ... TimeoutError",
+"Unable to resolve destination endpoint"), and every hop between our agents
+fell back to the direct API. All four agents run on one machine, so with
+`LOCAL_AGENT_ROUTING=on` they reach each other directly:
+
+- Every agent is built with `resolve=LocalFirstResolver(...)`
+  (`local_routing.py`, a `uagents.resolver.Resolver`). Our four addresses
+  come from the seeds and the `*_PORT` vars, and resolve to
+  `http://127.0.0.1:<port>/submit`. Any other address (ASI:One users)
+  goes to uagents' normal `GlobalResolver`, unchanged.
+- Every agent keeps `mailbox=True`. Pocket Pilot's mailbox is how ASI:One
+  reaches it, and the specialists' mailboxes keep them registered and
+  discoverable on Agentverse. A mailbox agent still serves `/submit` on
+  its own port (uagents keeps the local server whenever the agent has REST
+  routes; the inspector's count, and each specialist adds `GET /health`).
+- Replies are local too, since every agent uses the same resolver.
+- Each agent needs all four seeds in `.env` (to know the others'
+  addresses). `run_all.py` already checks this.
+- Fallbacks are unchanged: if a local hop fails (process down), the caller
+  still falls back to the Flask API directly.
+- Every hop logs its route, e.g.
+  `ScoreRequest -> Card Scorer via local (http://127.0.0.1:8002/submit)` or
+  `... via mailbox/remote (https://agentverse.ai/...)`. On startup each
+  agent prints `Local agent routing: on (...)` or `off`.
+
+Set `LOCAL_AGENT_ROUTING=off` to go back to resolving everything through
+Agentverse.
+
 ## Run
 
 ```bash

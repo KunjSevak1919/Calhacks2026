@@ -20,6 +20,7 @@ from uagents import Agent, Context, Protocol  # noqa: E402
 from uagents_core.identity import Identity  # noqa: E402
 
 import api_client  # noqa: E402
+import local_routing  # noqa: E402
 from messages import (  # noqa: E402
     DueSoonRequest,
     DueSoonResponse,
@@ -33,7 +34,7 @@ from messages import (  # noqa: E402
 )
 from seeds import require_seed  # noqa: E402
 
-PAYMENT_PLANNER_PORT = int(os.getenv("PAYMENT_PLANNER_PORT", "8003"))
+PAYMENT_PLANNER_PORT = local_routing.port("payment-planner")
 POCKET_PILOT_ADDRESS = Identity.from_seed(require_seed("POCKET_PILOT_SEED"), 0).address
 UNAUTHORIZED = "unauthorized"
 
@@ -46,9 +47,13 @@ agent = Agent(
     name="payment-planner",
     seed=require_seed("PAYMENT_PLANNER_SEED"),
     port=PAYMENT_PLANNER_PORT,
+    # Mailbox keeps it registered on Agentverse; resolve= and the /health
+    # route below make hops between our own agents local (local_routing.py).
     mailbox=True,
     publish_agent_details=True,
+    resolve=local_routing.build_resolver(),
 )
+local_routing.keep_local_server(agent, "payment-planner")
 
 planner_proto = Protocol(name="PocketPilotPaymentPlanner", version="1.0")
 
@@ -60,14 +65,14 @@ async def handle_due_soon(ctx: Context, sender: str, msg: DueSoonRequest):
         notes = api_client.get_notifications()
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] notifications failed: {e}")
-        await ctx.send(sender, DueSoonResponse(request_id=msg.request_id, ok=False, error=str(e)))
+        await local_routing.reply(ctx, sender, DueSoonResponse(request_id=msg.request_id, ok=False, error=str(e)))
         return
     summaries = [NotificationSummary(id=n["id"], kind=n["kind"], title=n["title"],
                                       body=n["body"], actions=n.get("actions", []),
                                       data=n.get("data") or {})
                  for n in notes]
     ctx.logger.info(f"[{msg.request_id}] {len(summaries)} notification(s)")
-    await ctx.send(sender, DueSoonResponse(request_id=msg.request_id, ok=True, notifications=summaries))
+    await local_routing.reply(ctx, sender, DueSoonResponse(request_id=msg.request_id, ok=True, notifications=summaries))
 
 
 @planner_proto.on_message(ExecuteActionRequest, replies=ExecuteActionResponse)
@@ -76,7 +81,7 @@ async def handle_execute_action(ctx: Context, sender: str, msg: ExecuteActionReq
                      f"for chat sender {msg.sender} (forwarded by {sender})")
     if not is_trusted_writer(sender):
         ctx.logger.warning(f"[{msg.request_id}] refused '{msg.action}' from untrusted {sender}")
-        await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=False,
+        await local_routing.reply(ctx, sender, ExecuteActionResponse(request_id=msg.request_id, ok=False,
                                                      error=UNAUTHORIZED))
         return
     try:
@@ -88,12 +93,12 @@ async def handle_execute_action(ctx: Context, sender: str, msg: ExecuteActionReq
             raise api_client.ApiError(f"Unknown action {msg.action!r}")
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] {msg.action} failed: {e}")
-        await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=False, error=str(e),
+        await local_routing.reply(ctx, sender, ExecuteActionResponse(request_id=msg.request_id, ok=False, error=str(e),
                                                      not_found=e.not_found))
         return
     message = (result or {}).get("message", "Done.")
     ctx.logger.info(f"[{msg.request_id}] {msg.action} succeeded: {message}")
-    await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=True, message=message))
+    await local_routing.reply(ctx, sender, ExecuteActionResponse(request_id=msg.request_id, ok=True, message=message))
 
 
 @planner_proto.on_message(PayRequest, replies=PayResponse)
@@ -102,17 +107,17 @@ async def handle_pay(ctx: Context, sender: str, msg: PayRequest):
                      f"{msg.merchant!r} ${msg.amount:.2f}")
     if not is_trusted_writer(sender):
         ctx.logger.warning(f"[{msg.request_id}] refused pay from untrusted {sender}")
-        await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=False, error=UNAUTHORIZED))
+        await local_routing.reply(ctx, sender, PayResponse(request_id=msg.request_id, ok=False, error=UNAUTHORIZED))
         return
     try:
         result = api_client.pay(merchant=msg.merchant, amount=msg.amount, card_id=msg.card)
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] pay failed: {e}")
-        await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=False, error=str(e),
+        await local_routing.reply(ctx, sender, PayResponse(request_id=msg.request_id, ok=False, error=str(e),
                                            not_found=e.not_found))
         return
     message = result.get("message") or f"Logged ${msg.amount:.2f} at {msg.merchant or 'that purchase'}."
-    await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=True, message=message))
+    await local_routing.reply(ctx, sender, PayResponse(request_id=msg.request_id, ok=True, message=message))
 
 
 @planner_proto.on_message(ImpactRequest, replies=ImpactResponse)
@@ -122,10 +127,10 @@ async def handle_impact(ctx: Context, sender: str, msg: ImpactRequest):
         result = api_client.impact()
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] impact failed: {e}")
-        await ctx.send(sender, ImpactResponse(request_id=msg.request_id, ok=False, error=str(e)))
+        await local_routing.reply(ctx, sender, ImpactResponse(request_id=msg.request_id, ok=False, error=str(e)))
         return
     message = result.get("message") or str(result)
-    await ctx.send(sender, ImpactResponse(request_id=msg.request_id, ok=True, message=message))
+    await local_routing.reply(ctx, sender, ImpactResponse(request_id=msg.request_id, ok=True, message=message))
 
 
 agent.include(planner_proto, publish_manifest=True)
@@ -133,6 +138,7 @@ agent.include(planner_proto, publish_manifest=True)
 
 if __name__ == "__main__":
     print(f"Payment Planner agent address: {agent.address}")
+    print(local_routing.describe())
     print(f"Inspector: https://agentverse.ai/inspect/?uri=http%3A%2F%2F127.0.0.1%3A{PAYMENT_PLANNER_PORT}"
           f"&address={agent.address}")
     agent.run()

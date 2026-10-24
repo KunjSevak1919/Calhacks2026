@@ -77,3 +77,13 @@ def test_due_soon_via_planner_keeps_note_data_so_yes_can_be_offered():
     delegate = pocket_pilot_agent.SpecialistDelegate(FakeCtx(resp))
     reply = run(dispatch.build_reply("alice:s1", "anything due soon?", FakeStorage(), delegate=delegate))
     assert reply.endswith("Reply yes to schedule $640 to Aurum Gold on Oct 29.")
+
+
+def test_read_fallback_log_says_whether_the_specialist_answered(monkeypatch, caplog):
+    monkeypatch.setattr(api_client, "impact", lambda: {"message": "Saved $55."})
+    resp = messages.ImpactResponse(request_id="i", ok=False, error="/api/impact isn't available")
+    delegate = pocket_pilot_agent.SpecialistDelegate(FakeCtx(resp))
+    with caplog.at_level(logging.INFO, logger="test"):
+        assert run(delegate.impact("i")) == {"message": "Saved $55."}
+    assert "answered with an error (/api/impact isn't available), falling back" in caplog.text
+    assert "unreachable" not in caplog.text
