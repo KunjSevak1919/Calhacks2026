@@ -14,7 +14,9 @@ import re
 # m2jxvjwhkunvessq yes" (confirmed: https://asi1.ai/blog/mastering-at-mentions).
 # Addresses are bech32 (lowercase letters + digits only), always "agent1...".
 MENTION_RE = re.compile(r"@agent1[a-z0-9]+", re.IGNORECASE)
-STRIP_CHARS = " \t\n.,!?;:"
+STRIP_CHARS = " \t\n.,!?;:\"'"
+# ASI:One sends typographic quotes (“ ” ‘ ’); match them like plain ones.
+CURLY_QUOTES = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"})
 
 AMOUNT_RE = re.compile(r"\$\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*dollars?", re.IGNORECASE)
 MERCHANT_AT_RE = re.compile(
@@ -72,7 +74,7 @@ def normalize_text(text):
     punctuation before intent matching, so a reply like "@agent1qxyz... yes"
     still matches "yes" exactly. Only trims from the ends -- amounts like
     "$84.50" keep their internal punctuation."""
-    cleaned = MENTION_RE.sub(" ", text or "")
+    cleaned = MENTION_RE.sub(" ", (text or "").translate(CURLY_QUOTES))
     cleaned = re.sub(r"\s+", " ", cleaned).strip(STRIP_CHARS)
     return cleaned
 
