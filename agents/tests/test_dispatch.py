@@ -780,3 +780,46 @@ def test_payback_zero_balance(monkeypatch):
         "pay_in_full": {"interest": 0.0, "months": 0}})
     reply = run(dispatch.build_reply("alice", "how long to pay off zero intro", FakeStorage()))
     assert reply == "Zero Intro has no balance, so there's nothing to pay off."
+
+
+VOYAGER_FEE_REPLY = (
+    "Voyager's $95.00 annual fee comes up Nov 15. It earned you $41.00 this year, $54.00 less "
+    "than the fee, so it isn't paying for itself. Switch to Voyager Basic (no annual fee) before "
+    "Nov 15, and keep the account open: closing it can shorten your credit history and raise your "
+    "usage. This is advice only, so I won't change anything.")
+
+
+@pytest.mark.parametrize("text", [
+    "Is my Voyager fee worth it?", "is my voyager fee worth it", f"{MENTION} is my Voyager fee worth it?",
+    "\u201cIs my annual fee worth it?\u201d", f"{MENTION} Voyager\u2019s annual fee",
+])
+def test_annual_fee_check(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[DUE_NOTE, FEE_VOYAGER_NOTE])
+    reply = run(dispatch.build_reply("alice", text, FakeStorage(), delegate=delegate))
+    assert reply == VOYAGER_FEE_REPLY
+    assert not [c for c in delegate.calls if c[0] in ("execute_action", "pay")]
+
+
+def test_annual_fee_worth_it(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    note = {**FEE_VOYAGER_NOTE, "data": {**FEE_VOYAGER_NOTE["data"], "value": 120.0, "net": 25.0,
+                                         "worth_it": True}}
+    delegate = FakeDelegate(due_soon_result=[note])
+    reply = run(dispatch.build_reply("alice", "is my voyager fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == ("Voyager's $95.00 annual fee comes up Nov 15. It earned you $120.00 this year, "
+                     "$25.00 more than the fee, so it's paying for itself.")
+
+
+def test_annual_fee_for_a_card_without_one(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[FEE_VOYAGER_NOTE])
+    reply = run(dispatch.build_reply("alice", "is my aurum fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == "Aurum Gold has no annual fee."
+
+
+def test_annual_fee_not_coming_up(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    delegate = FakeDelegate(due_soon_result=[])
+    reply = run(dispatch.build_reply("alice", "is my annual fee worth it", FakeStorage(), delegate=delegate))
+    assert reply == "Voyager's $95.00 annual fee isn't coming up soon, so there's nothing to decide yet."

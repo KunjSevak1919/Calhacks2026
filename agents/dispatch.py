@@ -443,6 +443,28 @@ def handle_payback(storage, sender, parsed):
     return card_replies.format_payback(card, plan)
 
 
+async def handle_annual_fee(storage, sender, parsed, delegate):
+    try:
+        cards = api_client.wallet().get("cards") or []
+        notes = await delegate.due_soon(str(uuid.uuid4())) or []
+    except api_client.ApiError as e:
+        return str(e)
+    checks = {(n.get("data") or {}).get("card_id"): n["data"] for n in notes
+              if n.get("kind") == "annual_fee" and n.get("data")}
+    card = card_replies.find_card(parsed.get("raw"), cards)
+    if card is not None:
+        set_last_card(storage, sender, card.get("id"))
+        if card.get("id") in checks:
+            return card_replies.format_fee_check(checks[card["id"]])
+        return card_replies.format_no_fee_check(card)
+    if checks:
+        return "\n\n".join(card_replies.format_fee_check(d) for d in checks.values())
+    fee_cards = [c for c in cards if c.get("annual_fee")]
+    if not fee_cards:
+        return "None of your cards charge an annual fee."
+    return "\n".join(card_replies.format_no_fee_check(c) for c in fee_cards)
+
+
 def handle_reset_demo():
     if not demo_mode_on():
         return "Demo reset is turned off."
@@ -597,6 +619,8 @@ async def _route(sender, text, storage, delegate=None):
         return handle_card_details(storage, sender, parsed)
     if intent == "payback":
         return handle_payback(storage, sender, parsed)
+    if intent == "annual_fee":
+        return await handle_annual_fee(storage, sender, parsed, delegate)
     if intent == "vfc_authorize":
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":

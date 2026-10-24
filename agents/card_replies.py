@@ -142,3 +142,29 @@ def format_payback(card, plan):
     return (f"{name}: {money(plan.get('balance'))} at {apr(plan.get('apr'))}.\n"
             f"- Pay in full: {_months(full.get('months'))}, {money(full.get('interest'))} interest.\n"
             f"- Minimum only: {_months(minimum.get('months'))}, {money(minimum.get('interest'))} interest.")
+
+
+KEEP_OPEN = ("keep the account open: closing it can shorten your credit history and raise "
+             "your usage. This is advice only, so I won't change anything.")
+
+
+def format_fee_check(data):
+    """The annual_fee notification's data: fee, value earned, net, worth_it,
+    no_fee_version, fee_date. Advice only, nothing to approve."""
+    name, when = data.get("name", "This card"), nice_date(data.get("fee_date"))
+    net = data.get("net")
+    gap = money(abs(net)) if net is not None else MISSING
+    head = (f"{name}'s {money(data.get('fee'))} annual fee comes up {when}. "
+            f"It earned you {money(data.get('value'))} this year")
+    if data.get("worth_it"):
+        return f"{head}, {gap} more than the fee, so it's paying for itself."
+    switch = (f"Switch to {data['no_fee_version']} (no annual fee) before {when}"
+              if data.get("no_fee_version") else f"Ask about a no-fee version before {when}")
+    return f"{head}, {gap} less than the fee, so it isn't paying for itself. {switch}, and {KEEP_OPEN}"
+
+
+def format_no_fee_check(card):
+    if not card.get("annual_fee"):
+        return f"{card.get('name', 'That card')} has no annual fee."
+    return (f"{card.get('name', 'That card')}'s {money(card.get('annual_fee'))} annual fee isn't "
+            "coming up soon, so there's nothing to decide yet.")
