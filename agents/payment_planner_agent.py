@@ -63,7 +63,8 @@ async def handle_due_soon(ctx: Context, sender: str, msg: DueSoonRequest):
         await ctx.send(sender, DueSoonResponse(request_id=msg.request_id, ok=False, error=str(e)))
         return
     summaries = [NotificationSummary(id=n["id"], kind=n["kind"], title=n["title"],
-                                      body=n["body"], actions=n.get("actions", []))
+                                      body=n["body"], actions=n.get("actions", []),
+                                      data=n.get("data") or {})
                  for n in notes]
     ctx.logger.info(f"[{msg.request_id}] {len(summaries)} notification(s)")
     await ctx.send(sender, DueSoonResponse(request_id=msg.request_id, ok=True, notifications=summaries))

@@ -5,7 +5,7 @@ Every request/response carries request_id so both sides can log a
 correlated trail ("[req-id] Card Scorer answered...") even though
 ctx.send_and_receive already correlates replies under the hood.
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from uagents import Field, Model
 
@@ -70,6 +70,9 @@ class NotificationSummary(Model):
     title: str
     body: str
     actions: List[str] = Field(default_factory=list)
+    # The server's numbers for this alert (amounts, dates, card name). Needed
+    # to offer "Reply yes to schedule $640 ..." and to answer fee questions.
+    data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class DueSoonRequest(Model):

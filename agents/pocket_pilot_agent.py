@@ -123,7 +123,7 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{request_id}] Payment Planner answered via agent message")
             return [{"id": n.id, "kind": n.kind, "title": n.title, "body": n.body,
-                      "actions": n.actions} for n in resp.notifications]
+                      "actions": n.actions, "data": n.data} for n in resp.notifications]
         self.ctx.logger.warning(f"[{request_id}] Payment Planner unreachable/timed out, "
                                  "falling back to direct API")
         return await super().due_soon(request_id)

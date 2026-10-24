@@ -60,3 +60,20 @@ def test_pay_not_found_counts_as_done(monkeypatch):
     resp = messages.PayResponse(request_id="p", ok=False, error="gone", not_found=True)
     delegate = pocket_pilot_agent.SpecialistDelegate(FakeCtx(resp))
     assert run(delegate.pay("p", "Target", 40.0, None)) is None
+
+
+def test_due_soon_via_planner_keeps_note_data_so_yes_can_be_offered():
+    """The approve prompt ("Reply yes to schedule $640 ...") is built from
+    note["data"]; it must survive the agent-message hop."""
+    import dispatch
+    from fake_storage import FakeStorage
+
+    note = messages.NotificationSummary(
+        id="due-aurum", kind="due", title="Aurum Gold is due Oct 30", body="Pay $640 on Oct 29?",
+        actions=["Approve", "Later"],
+        data={"name": "Aurum Gold", "suggested": 640.0, "pay_on": "2026-10-29"})
+    resp = messages.DueSoonResponse(request_id="d", ok=True, notifications=[note])
+    resp = messages.DueSoonResponse.parse_raw(resp.json())  # as it crosses the wire
+    delegate = pocket_pilot_agent.SpecialistDelegate(FakeCtx(resp))
+    reply = run(dispatch.build_reply("alice:s1", "anything due soon?", FakeStorage(), delegate=delegate))
+    assert reply.endswith("Reply yes to schedule $640 to Aurum Gold on Oct 29.")
