@@ -231,6 +231,7 @@ def test_confirm_yes_with_asi_one_mention_prefix(monkeypatch):
     dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "approve_notification",
                          lambda note_id: {"id": note_id, "message": "Scheduled $640 to Aurum Gold on Oct 29"})
+    monkeypatch.setattr(api_client, "get_notifications", lambda: [])
     mention = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq yes"
     reply = run(dispatch.build_reply("alice", mention, storage))
     assert "Scheduled $640" in reply

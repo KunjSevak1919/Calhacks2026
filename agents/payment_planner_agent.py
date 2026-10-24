@@ -1,10 +1,12 @@
 """Payment Planner: a Fetch.ai specialist agent that owns everything that
 changes money or state -- due-soon notifications, approve/dismiss, pay,
 impact. Stateless itself: every call goes straight to the Flask API in
-server/. It trusts that Pocket Pilot (the front door) only sends an
-ExecuteActionRequest after getting an explicit "yes" from the same chat
-sender who was offered that exact action -- the pending-confirmation store
-lives in Pocket Pilot's dispatch.py, not here.
+server/. Writes (ExecuteActionRequest, PayRequest) are accepted only from
+Pocket Pilot's own address, derived from POCKET_PILOT_SEED; anyone else
+gets ok=False "unauthorized". Pocket Pilot only sends a write after getting
+an explicit "yes" from the same chat sender who was offered that exact
+action -- the pending-confirmation store lives in its dispatch.py. Reads
+(due soon, impact) stay open to any agent.
 
 Run standalone: python payment_planner_agent.py
 """
@@ -15,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from uagents import Agent, Context, Protocol  # noqa: E402
+from uagents_core.identity import Identity  # noqa: E402
 
 import api_client  # noqa: E402
 from messages import (  # noqa: E402
@@ -30,6 +33,14 @@ from messages import (  # noqa: E402
 )
 
 PAYMENT_PLANNER_PORT = int(os.getenv("PAYMENT_PLANNER_PORT", "8003"))
+POCKET_PILOT_ADDRESS = Identity.from_seed(
+    os.getenv("POCKET_PILOT_SEED", "pocket-pilot-dev-seed"), 0).address
+UNAUTHORIZED = "unauthorized"
+
+
+def is_trusted_writer(sender):
+    """Only Pocket Pilot may ask for a write; it holds the user's "yes"."""
+    return sender == POCKET_PILOT_ADDRESS
 
 agent = Agent(
     name="payment-planner",
@@ -62,6 +73,11 @@ async def handle_due_soon(ctx: Context, sender: str, msg: DueSoonRequest):
 async def handle_execute_action(ctx: Context, sender: str, msg: ExecuteActionRequest):
     ctx.logger.info(f"[{msg.request_id}] execute '{msg.action}' on {msg.note_id} "
                      f"for chat sender {msg.sender} (forwarded by {sender})")
+    if not is_trusted_writer(sender):
+        ctx.logger.warning(f"[{msg.request_id}] refused '{msg.action}' from untrusted {sender}")
+        await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=False,
+                                                     error=UNAUTHORIZED))
+        return
     try:
         if msg.action == "approve":
             result = api_client.approve_notification(msg.note_id)
@@ -82,6 +98,10 @@ async def handle_execute_action(ctx: Context, sender: str, msg: ExecuteActionReq
 async def handle_pay(ctx: Context, sender: str, msg: PayRequest):
     ctx.logger.info(f"[{msg.request_id}] pay request from {sender}: "
                      f"{msg.merchant!r} ${msg.amount:.2f}")
+    if not is_trusted_writer(sender):
+        ctx.logger.warning(f"[{msg.request_id}] refused pay from untrusted {sender}")
+        await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=False, error=UNAUTHORIZED))
+        return
     try:
         result = api_client.pay(merchant=msg.merchant, amount=msg.amount, card_id=msg.card)
     except api_client.ApiError as e:
