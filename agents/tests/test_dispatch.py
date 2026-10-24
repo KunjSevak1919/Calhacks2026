@@ -578,3 +578,52 @@ def test_reset_demo_works_when_on(monkeypatch):
     reply = run(dispatch.build_reply("alice", "@agent1qxyz reset demo", FakeStorage()))
     assert reply == "Demo reset."
     assert called == [1]
+
+
+# ---------- Debt Guard flip re-answers the last Visa question ----------
+
+VFC_CREDIT_RESULT = {**VFC_DEBIT_RESULT, "funding": "credit", "card_name": "Aurum Gold",
+                     "rule_id": "credit-if-clear",
+                     "reason": ("Pay with credit on Aurum Gold: you can pay this off in full, so it "
+                                "earns $3.38 (4% on grocery) with no interest.")}
+
+
+def test_debt_guard_on_reanswers_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    guard = {"on": False}
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: guard.update(on=enabled))
+    seen = []
+
+    def authorize(**kw):
+        seen.append(kw)
+        return VFC_DEBIT_RESULT if guard["on"] else VFC_CREDIT_RESULT
+
+    monkeypatch.setattr(api_client, "vfc_authorize", authorize)
+    monkeypatch.setattr(api_client, "pick", lambda **kw: (_ for _ in ()).throw(
+        AssertionError("a Visa question must be re-answered as a Visa question")))
+
+    first = run(dispatch.build_reply("alice", "How should I pay at Whole Foods for $84.50?", storage))
+    assert first.startswith("Pay with credit on Aurum Gold")
+    reply = run(dispatch.build_reply("alice", "turn on debt guard", storage))
+    assert reply.startswith("Debt Guard is on. Same purchase, new answer: Pay with debit")
+    assert seen[-1] == {"merchant": "Whole Foods", "amount": 84.5}
+
+
+def test_debt_guard_off_reanswers_last_visa_question(monkeypatch):
+    storage = FakeStorage()
+    dispatch.set_last_pick(storage, "alice", "Whole Foods", 84.5, kind="vfc")
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: {"debt_guard": enabled})
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_CREDIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "@agent1qabc turn off debt guard", storage))
+    assert reply.startswith("Debt Guard is off. Same purchase, new answer: Pay with credit on Aurum Gold")
+
+
+def test_card_pick_after_visa_question_wins(monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_CREDIT_RESULT)
+    monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
+    monkeypatch.setattr(api_client, "set_debt_guard", lambda enabled: {"debt_guard": enabled})
+    run(dispatch.build_reply("alice", "how should I pay at Whole Foods for $84.50", storage))
+    run(dispatch.build_reply("alice", "which card at Target for $20", storage))
+    reply = run(dispatch.build_reply("alice", "turn off debt guard", storage))
+    assert "Same purchase, new pick" in reply

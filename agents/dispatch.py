@@ -115,11 +115,13 @@ def clear_pending(storage, sender):
 
 
 def get_last_pick(storage, sender):
+    """The last purchase question in this chat: kind "pick" (which card) or
+    "vfc" (Visa Flexible: how should I pay). Whichever was asked last wins."""
     return storage.get(_last_pick_key(sender))
 
 
-def set_last_pick(storage, sender, merchant, amount):
-    storage.set(_last_pick_key(sender), {"merchant": merchant, "amount": amount})
+def set_last_pick(storage, sender, merchant, amount, kind="pick"):
+    storage.set(_last_pick_key(sender), {"merchant": merchant, "amount": amount, "kind": kind})
 
 
 # ---------- reply builders ----------
@@ -222,7 +224,15 @@ async def handle_debt_guard(storage, sender, enabled, delegate):
         return str(e)
     reply = f"Debt Guard is {'on' if enabled else 'off'}."
     last_pick = get_last_pick(storage, sender)
-    if last_pick and last_pick.get("amount") is not None:
+    if last_pick and last_pick.get("amount") is not None and last_pick.get("kind") == "vfc":
+        try:
+            result = api_client.vfc_authorize(merchant=last_pick.get("merchant"),
+                                              amount=last_pick["amount"])
+            if result.get("reason"):
+                reply += " Same purchase, new answer: " + result["reason"]
+        except api_client.ApiError:
+            pass
+    elif last_pick and last_pick.get("amount") is not None:
         try:
             request_id = str(uuid.uuid4())
             result = await delegate.score_pick(request_id, last_pick.get("merchant"), last_pick["amount"])
@@ -380,7 +390,7 @@ def handle_reset_demo():
     return "Demo reset."
 
 
-def handle_vfc_authorize(parsed):
+def handle_vfc_authorize(storage, sender, parsed):
     """Visa Flexible Credential (simulated): read-only, no approval needed
     since nothing moves money -- it's a what-if, like /api/pick. No
     specialist owns this (same reasoning as coach/reset above), so it's a
@@ -392,6 +402,7 @@ def handle_vfc_authorize(parsed):
         result = api_client.vfc_authorize(merchant=merchant, amount=amount)
     except api_client.ApiError as e:
         return str(e)
+    set_last_pick(storage, sender, merchant, amount, kind="vfc")
     return result.get("reason") or "Not sure how to fund that purchase."
 
 
@@ -441,7 +452,7 @@ async def build_reply(sender, text, storage, delegate=None):
     if intent == "reset_demo":
         return handle_reset_demo()
     if intent == "vfc_authorize":
-        return handle_vfc_authorize(parsed)
+        return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":
         return handle_vfc_rules()
     return "Not sure what you mean. Say \"help\" to see what I can do."
