@@ -99,3 +99,25 @@ def format_wallet(wallet):
     total = (f"Total: {money(wallet.get('total_balance'))} of {money(wallet.get('total_limit'))} "
              f"({percent(wallet.get('usage'))} used). Debt Guard is {guard}.")
     return "Your cards:\n" + "\n".join(lines) + "\n" + total
+
+
+def _usage_tip(tip):
+    """planner.usage_tip(): {pay, before, target, ...} or None."""
+    if isinstance(tip, str) and tip:
+        return tip
+    if isinstance(tip, dict):
+        return (f"Pay {money(tip.get('pay'))} before {nice_date(tip.get('before'))} to report "
+                f"usage under {percent(tip.get('target'))}.")
+    return "Usage is low, so there's nothing extra to pay before the statement closes."
+
+
+def format_card(card):
+    fee = card.get("annual_fee")
+    fee_text = "No annual fee." if not fee else f"{money(fee)} annual fee."
+    ending = f" (ending {card['last4']})" if card.get("last4") else ""
+    label = f": {card['label']}." if card.get("label") else "."
+    return (f"{card.get('name', '?')}{ending}{label}\n"
+            f"{money(card.get('balance'))} of {money(card.get('limit'))} "
+            f"({percent(card.get('usage'))} used), {apr(card.get('apr'))}, {_due(card)}. "
+            f"{fee_text} {money(card.get('rewards_ytd'))} in rewards this year.\n"
+            f"{_usage_tip(card.get('usage_tip'))}")

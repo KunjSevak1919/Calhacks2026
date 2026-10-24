@@ -116,6 +116,20 @@ def clear_pending(storage, sender):
     storage.set(_pending_key(sender), None)
 
 
+def _last_card_key(sender):
+    return f"last_card:{sender}"
+
+
+def get_last_card(storage, sender):
+    """The card this chat last asked about, so "what if I only pay the
+    minimum?" can follow "tell me about Aurum Gold"."""
+    return storage.get(_last_card_key(sender))
+
+
+def set_last_card(storage, sender, card_id):
+    storage.set(_last_card_key(sender), card_id)
+
+
 def get_last_pick(storage, sender):
     """The last purchase question in this chat: kind "pick" (which card) or
     "vfc" (Visa Flexible: how should I pay). Whichever was asked last wins."""
@@ -391,6 +405,24 @@ def handle_wallet():
         return str(e)
 
 
+COACH_TOPIC_WORDS = ("credit", "score", "interest", "apr", "utilization", "fico", "debt", "limit")
+
+
+def handle_card_details(storage, sender, parsed):
+    query = parsed.get("card_query") or ""
+    try:
+        cards = api_client.wallet().get("cards") or []
+    except api_client.ApiError as e:
+        return str(e)
+    card = card_replies.find_card(query, cards)
+    if card is None:
+        if any(w in query.lower() for w in COACH_TOPIC_WORDS):
+            return handle_coach(parsed.get("raw") or query)  # "tell me about credit scores"
+        return card_replies.unknown_card(query, cards)
+    set_last_card(storage, sender, card.get("id"))
+    return card_replies.format_card(card)
+
+
 def handle_reset_demo():
     if not demo_mode_on():
         return "Demo reset is turned off."
@@ -541,6 +573,8 @@ async def _route(sender, text, storage, delegate=None):
         return handle_reset_demo()
     if intent == "wallet":
         return handle_wallet()
+    if intent == "card_details":
+        return handle_card_details(storage, sender, parsed)
     if intent == "vfc_authorize":
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":

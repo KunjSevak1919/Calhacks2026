@@ -696,3 +696,39 @@ def test_which_of_my_cards_with_amount_is_still_a_pick(monkeypatch):
     monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
     reply = run(dispatch.build_reply("alice", "which of my cards at Whole Foods for $84.50", FakeStorage()))
     assert "Zero Intro" in reply and "Your cards" not in reply
+
+
+@pytest.mark.parametrize("text", [
+    "Tell me about Aurum Gold", "tell me about aurum", f"{MENTION} tell me about my Aurum card",
+    "\u201cTell me about Aurum Gold\u201d",
+])
+def test_card_details(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    storage = FakeStorage()
+    reply = run(dispatch.build_reply("alice", text, storage))
+    assert reply == (
+        "Aurum Gold (ending 4021): 4x points on groceries.\n"
+        "$640.00 of $5,000.00 (13% used), 29.9% APR, due Oct 30. No annual fee. "
+        "$112.00 in rewards this year.\n"
+        "Usage is low, so there's nothing extra to pay before the statement closes.")
+    assert dispatch.get_last_card(storage, "alice") == "aurum"
+
+
+def test_card_details_includes_usage_tip(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: {**WALLET, "cards": [HIGH_USAGE_CARD]})
+    reply = run(dispatch.build_reply("alice", "tell me about spin", FakeStorage()))
+    assert reply.endswith("Pay $450.00 before Nov 1 to report usage under 30%.")
+
+
+def test_card_details_unknown_card_lists_cards(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", f"{MENTION} tell me about my Sapphire\u2019s card", FakeStorage()))
+    assert reply == ("I don't see a card called \"Sapphire's\". "
+                     "Your cards: Aurum Gold, Steady 2%, Zero Intro, Spin 5%, Voyager.")
+
+
+def test_tell_me_about_a_credit_topic_goes_to_coach(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "ask_coach", lambda q, history=None: {"answer": "A score is..."})
+    reply = run(dispatch.build_reply("alice", "tell me about credit scores", FakeStorage()))
+    assert reply == "A score is..."
