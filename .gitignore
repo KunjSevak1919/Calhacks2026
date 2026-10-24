@@ -9,3 +9,6 @@ dist/
 *.db
 .DS_Store
 agent1*_data.json
+
+# x402 earnings/spending logs (agents/x402_ledger.py)
+.x402/
