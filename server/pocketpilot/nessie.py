@@ -65,10 +65,11 @@ def load_profile(customer_id=None):
             if acct.get("type") != "Credit Card":
                 continue
             card_id = by_name.get(acct.get("nickname", "").lower())
-            if not card_id:
+            # Skip accounts we have no limit/due-date info for, or the wallet would crash.
+            if not card_id or card_id not in profile["accounts"]:
                 continue
             # Nessie stores balance; keep limits, due dates etc. from the demo file.
-            profile["accounts"].setdefault(card_id, {})["balance"] = float(acct["balance"])
+            profile["accounts"][card_id]["balance"] = float(acct["balance"])
             profile["accounts"][card_id]["nessie_id"] = acct["_id"]
             for p in client.purchases(acct["_id"])[-25:]:
                 m = client.merchant(p["merchant_id"])

@@ -49,6 +49,39 @@ def test_notifications_and_approve(client):
     assert "sub-streambox" not in ids
 
 
+def test_approved_notification_is_gone_and_cannot_be_approved_twice(client):
+    assert client.post("/api/notifications/due-aurum/approve").status_code == 200
+    ids = [n["id"] for n in client.get("/api/notifications").get_json()]
+    assert "due-aurum" not in ids
+    assert client.post("/api/notifications/due-aurum/approve").status_code == 404
+
+
+def test_dismissed_notification_is_gone(client):
+    assert client.post("/api/notifications/fee-voyager/dismiss").status_code == 200
+    ids = [n["id"] for n in client.get("/api/notifications").get_json()]
+    assert "fee-voyager" not in ids
+    assert client.post("/api/notifications/fee-voyager/dismiss").status_code == 404
+
+
+def test_nessie_skips_unknown_cards(monkeypatch):
+    from pocketpilot import nessie
+
+    class FakeNessie:
+        enabled = True
+        def accounts(self, _):
+            return [{"type": "Credit Card", "nickname": "Aurum Gold", "balance": 700, "_id": "a1"},
+                    {"type": "Credit Card", "nickname": "Mystery Card", "balance": 50, "_id": "x9"}]
+        def purchases(self, _):
+            return []
+
+    monkeypatch.setattr(nessie, "Nessie", FakeNessie)
+    profile = nessie.load_profile(customer_id="c1")
+    assert profile["source"] == "nessie"
+    assert profile["accounts"]["aurum"]["balance"] == 700.0
+    assert set(profile["accounts"]) == {"aurum", "steady", "zero", "spin", "voyager"}
+    PocketPilot(profile=profile).wallet()   # must not crash
+
+
 def test_coach_offline(client):
     r = client.post("/api/coach", json={"question": "Why did my credit score drop?"}).get_json()
     assert r["source"] == "offline" and "Zero Intro" in r["answer"]

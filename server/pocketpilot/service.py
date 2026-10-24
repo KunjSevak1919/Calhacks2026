@@ -11,6 +11,7 @@ class PocketPilot:
         self.today = today or data.parse_date(self.profile.get("today")) or date.today()
         self.settings = {"debt_guard": False}
         self.approved = []
+        self.dismissed = set()
 
     # ----- reads -----
     @property
@@ -59,7 +60,10 @@ class PocketPilot:
                 "best": best, "ranked": ranked, "reason": why}
 
     def notifications(self):
-        return planner.notifications(self.cards, self.profile, self.today)
+        """Alerts still waiting for the user. Approved or dismissed ones never come back."""
+        done = {r["id"] for r in self.approved} | self.dismissed
+        return [n for n in planner.notifications(self.cards, self.profile, self.today)
+                if n["id"] not in done]
 
     def payback(self, card_id):
         c = data.card_by_id(card_id)
@@ -95,3 +99,10 @@ class PocketPilot:
         record = {"id": notification_id, "kind": note["kind"], "message": msg}
         self.approved.append(record)
         return record
+
+    def dismiss(self, notification_id):
+        """'Later' / 'Keep it': hide the alert for this session without acting."""
+        if not any(n["id"] == notification_id for n in self.notifications()):
+            return None
+        self.dismissed.add(notification_id)
+        return {"id": notification_id, "message": "Dismissed"}

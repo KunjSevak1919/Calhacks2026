@@ -56,6 +56,14 @@ def approve(note_id):
     return jsonify(result)
 
 
+@app.post("/api/notifications/<note_id>/dismiss")
+def dismiss(note_id):
+    result = pilot.dismiss(note_id)
+    if result is None:
+        return {"error": f"No notification called {note_id}"}, 404
+    return jsonify(result)
+
+
 @app.post("/api/coach")
 def coach():
     b = body()
