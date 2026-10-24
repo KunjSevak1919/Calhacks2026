@@ -92,4 +92,6 @@ def payback(card_id):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5001)), debug=True)
+    # Debug and the auto-reloader only with FLASK_DEBUG=1: a reload wipes in-memory state.
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5001)), debug=debug, use_reloader=debug)
