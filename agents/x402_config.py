@@ -23,11 +23,15 @@ TESTNETS = {
         "decimals": 6,
         "explorer_tx": "https://sepolia.basescan.org/tx/",
         "faucet_network": "base-sepolia",
+        "rpc": "https://sepolia.base.org",
     },
 }
 
 DEFAULT_NETWORK = "eip155:84532"
 DEFAULT_FACILITATOR_URL = "https://x402.org/facilitator"
+# How long a signed payment stays usable (EIP-3009 validBefore). Short, so a
+# payment that failed to settle can't be settled long after the fact.
+AUTHORIZATION_WINDOW_SECONDS = 120
 DEFAULT_LEDGER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".x402")
 
 # CDP Server Wallet account names (created on first use by x402_setup.py).
@@ -55,10 +59,17 @@ class X402Config:
     max_per_call_usd: Decimal
     ledger_dir: str
     pay_to: str               # optional override; else the seller CDP account
+    facilitator_timeout_seconds: float  # per verify/settle call
+    client_timeout_seconds: float       # a paying client waits this long for the answer
+    rpc_url: str              # for on-chain checks of a payment's authorization
 
     @property
     def network_name(self):
         return TESTNETS.get(self.network, {}).get("name", self.network)
+
+    @property
+    def usdc(self):
+        return TESTNETS.get(self.network, {}).get("usdc")
 
     @property
     def is_testnet(self):
@@ -89,6 +100,17 @@ def _usd(env, name, default):
     return value
 
 
+def _seconds(env, name, default):
+    raw = (env.get(name) or "").strip() or default
+    try:
+        value = float(raw)
+    except ValueError as e:
+        raise X402ConfigError(f"{name} must be a number of seconds, got {raw!r}") from e
+    if value <= 0:
+        raise X402ConfigError(f"{name} must be more than 0")
+    return value
+
+
 def load(env=None):
     """Build the config from env (default os.environ). Never raises for a
     missing key -- that just turns x402 off. Raises X402ConfigError only for
@@ -105,10 +127,11 @@ def load(env=None):
     elif _packages_missing():
         reason = f"package not installed ({_packages_missing()}); pip install -r requirements.txt"
 
+    network = (env.get("X402_NETWORK") or DEFAULT_NETWORK).strip()
     return X402Config(
         enabled=not reason,
         reason=reason,
-        network=(env.get("X402_NETWORK") or DEFAULT_NETWORK).strip(),
+        network=network,
         facilitator_url=(env.get("X402_FACILITATOR_URL") or DEFAULT_FACILITATOR_URL).strip().rstrip("/"),
         host=host,
         port=port,
@@ -119,6 +142,9 @@ def load(env=None):
         max_per_call_usd=_usd(env, "X402_MAX_PER_CALL_USD", "0.01"),
         ledger_dir=(env.get("X402_LEDGER_DIR") or DEFAULT_LEDGER_DIR).strip(),
         pay_to=(env.get("X402_PAY_TO") or "").strip(),
+        facilitator_timeout_seconds=_seconds(env, "X402_FACILITATOR_TIMEOUT_SECONDS", "30"),
+        client_timeout_seconds=_seconds(env, "X402_CLIENT_TIMEOUT_SECONDS", "150"),
+        rpc_url=(env.get("X402_RPC_URL") or TESTNETS.get(network, {}).get("rpc") or "").strip(),
     )
 
 
