@@ -37,6 +37,30 @@ class ScoreResponse(Model):
     category: Optional[str] = None
     mcc: Optional[str] = None
     confidence: Optional[float] = None
+    source: Optional[str] = None
+    note: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ResolveRequest(Model):
+    request_id: str
+    merchant: Optional[str] = None
+    mcc: Optional[str] = None
+    place_types: Optional[List[str]] = None
+    domain: Optional[str] = None
+
+
+class ResolveResponse(Model):
+    request_id: str
+    ok: bool
+    merchant: Optional[str] = None
+    category: Optional[str] = None
+    label: Optional[str] = None
+    mcc: Optional[str] = None
+    confidence: Optional[float] = None
+    source: Optional[str] = None
+    note: Optional[str] = None
+    needs_paid_lookup: bool = False
     error: Optional[str] = None
 
 
