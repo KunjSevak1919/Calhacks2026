@@ -52,8 +52,8 @@ there's no LLM anywhere in the resolve/score path.
 - `card_scorer_agent.py` -- specialist: asks Merchant Resolver what kind of
   store this is, then picks the best card for a purchase by calling
   `/api/pick`. Its protocol is published so any other agent on Agentverse
-  can call it too (the hook for a future Coinbase x402 paid endpoint -- not
-  built here). Its confidence-threshold decision (trust the Resolver's mcc,
+  can call it too; the same answer is sold over Coinbase x402 by
+  `x402_server.py` (see "Coinbase x402" below). Its confidence-threshold decision (trust the Resolver's mcc,
   or play it safe with the merchant name only) lives in `card_scorer.py`.
 - `payment_planner_agent.py` -- specialist: owns everything that changes
   money or state -- due-soon notifications, approve/dismiss, pay, impact.
@@ -252,9 +252,10 @@ Keywords: `due dates`, `bill reminders`, `subscriptions`, `payments`,
 
 **Merchant Resolver** (discoverable, not meant for chat):
 > Turns a store name into a merchant category code (MCC), category, and
-> confidence for card rewards -- deterministic, no LLM. Flags low-confidence
-> guesses for a future paid lookup instead of guessing silently. Callable by
-> any agent that needs to know what kind of store a purchase is at.
+> confidence for card rewards -- deterministic, no LLM. When it's unsure, it
+> pays a small Coinbase x402 lookup (test USDC, hard daily cap) instead of
+> guessing silently. Callable by any agent that needs to know what kind of
+> store a purchase is at.
 
 Keywords: `merchant category code`, `MCC`, `store category`, `merchant
 resolution`, `rewards categories`.
@@ -336,6 +337,123 @@ gets a fresh random session (`Agent._build_context`), and Fetch's ASI:One
 docs only describe agents replying to a user's message. Nothing confirms
 that ASI:One shows a message the user didn't prompt. Ask "anything due
 soon?" instead.
+
+## Coinbase x402: agents that earn and pay (test network only)
+
+Our agents both **earn** and **pay** over [x402](https://www.x402.org/)
+(HTTP 402 Payment Required), with test USDC on **Base Sepolia**, never real
+money. Wallets are CDP Server Wallet accounts (Coinbase Developer Platform),
+so private keys stay inside CDP.
+
+- **Earn:** `x402_server.py` sells two endpoints to any agent:
+  - `POST /x402/best-card` `{merchant, amount, debt_guard?}` costs $0.001.
+    It returns the best card, the reason, the MCC and the runner-up, from
+    the same engine as `/api/pick`.
+  - `POST /x402/merchant-data` `{merchant}` costs $0.001. Its answers come
+    from a **simulated** merchant directory (`x402_merchant_data.json`),
+    and every reply says so.
+
+  An unpaid request gets `402` with a `PAYMENT-REQUIRED` header giving the
+  price, network, test USDC and our address. A paid retry is verified and
+  settled by the facilitator, and the answer comes back with a
+  `PAYMENT-RESPONSE` receipt carrying the tx hash. A request we reject
+  (bad input, engine down) is never settled, so the caller isn't charged.
+- **Pay:** when Merchant Resolver is unsure about a store (confidence below
+  0.6), it pays `/x402/merchant-data` from its own wallet and uses the
+  answer only if it's more confident. Each store is paid for at most once
+  per run.
+- **Spending caps:** the paying wallet has a hard daily cap
+  (`X402_DAILY_CAP_USD`, default $0.05) and a per-call max
+  (`X402_MAX_PER_CALL_USD`, default $0.01).
+  - A payment counts against the cap from the moment we agree to sign it.
+  - Over either limit, it doesn't pay, keeps the free answer, and logs why:
+    `x402: didn't pay or failed (over daily cap: spent $0.05 of $0.05 today ...)`.
+  - It only ever signs for Base Sepolia test USDC.
+  - x402's own `spend_controls` enforces the per-call max as a second layer.
+- **Testnet only:** any `X402_NETWORK` other than `eip155:84532` and the
+  x402 service, the paying resolver, the demo and `run_all.py` refuse to
+  start.
+- **Off by default without keys:** if any of `CDP_API_KEY_ID`,
+  `CDP_API_KEY_SECRET` or `CDP_WALLET_SECRET` is missing (or
+  `X402_ENABLED=off`), every agent works exactly as before and logs
+  `x402: off (missing CDP_WALLET_SECRET in .env). Everything else works as before.`
+  Only key names are ever logged, never values.
+- **Chat:** "How much have the agents earned?" (or "...spent?") replies:
+  ```
+  Coinbase x402 on Base Sepolia, test USDC (not real money).
+  Earned: $0.004 from 4 paid calls by other agents.
+  Spent: $0.003 on 3 merchant lookups.
+  Today's cap: $0.047 of $0.050 left (max $0.010 per call).
+  Latest tx: https://sepolia.basescan.org/tx/0x...
+  ```
+  Earnings and spending are logged in `agents/.x402/` (gitignored).
+
+Built on `x402==2.25.0` (Flask middleware + `requests` client) and
+`cdp-sdk==1.51.0`. The facilitator is the public
+`https://x402.org/facilitator`, which needs no key and supports Base
+Sepolia. Not used: `coinbase-agentkit` (0.7.4 pins `x402<2`) and Coinbase's
+Payments MCP (its client wrapper `@x402/mcp` is TypeScript only).
+
+| File | What it does |
+|---|---|
+| `x402_server.py` | The paid endpoints (earn). Flask on `X402_PORT` (8010). |
+| `x402_payer.py` | Pays an x402 endpoint within the caps (pay). Never raises; returns the answer or why it didn't pay. |
+| `paid_lookup.py` | Merchant Resolver's paid lookup + per-store cache. |
+| `x402_ledger.py` | Earned/spent log and `SpendGuard` (caps). |
+| `x402_config.py` | `.env` settings, testnet guard, on/off reason. |
+| `x402_wallet.py` | CDP accounts, faucet, balances. |
+| `x402_report.py` | The chat reply. |
+| `x402_setup.py` | One-time: accounts + test USDC. |
+| `x402_demo_client.py` | "Another AI shopping agent" buying an answer. |
+
+### Setup
+
+1. Create a CDP API key and a Wallet Secret at
+   [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com). Put them in
+   the repo's `.env` as `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` and
+   `CDP_WALLET_SECRET`. The `X402_*` settings in `.env.example` all have
+   safe defaults.
+2. `pip install -r requirements.txt` (adds `x402` and `cdp-sdk`).
+3. `python x402_setup.py`. This creates three accounts:
+   - `pocket-pilot-seller`, which receives earnings
+   - `pocket-pilot-buyer`, which Merchant Resolver pays from
+   - `shopping-agent-demo`, which the demo client pays from
+
+   It prints their addresses and asks CDP's faucet for test USDC for the
+   two paying accounts. If the faucet refuses (rate limit), wait and run it
+   again, or use the [CDP faucet page](https://portal.cdp.coinbase.com/products/faucet).
+   `python x402_setup.py --no-faucet` shows the balances.
+4. Start everything as usual. `python run_all.py` starts `x402_server.py`
+   first when x402 is on. Or run `python x402_server.py` on its own.
+
+### Run the demo client
+
+```powershell
+python x402_demo_client.py                                   # Whole Foods, $84.50
+python x402_demo_client.py --merchant Costco --amount 42 --debt-guard
+```
+
+It prints each step: `[1]` the unpaid POST and the `402` (price $0.001,
+Base Sepolia, USDC address, our address), `[2]` its wallet and the signed
+payment within its caps, `[3]` the answer (best card, reason, MCC) and the
+receipt with a Basescan link. Its spending is logged separately, in
+`.x402/demo-client/`.
+
+### 30-second judge script
+
+1. **Earn (10s).** Run `python x402_demo_client.py`. "Another AI agent asks
+   Pocket Pilot which card to use. It gets HTTP 402 with a price, $0.001 in
+   test USDC. It pays from its own wallet, retries, and gets the answer."
+   Click the Basescan link to show the real USDC transfer to our address.
+2. **Pay (10s).** In ASI:One, ask "What kind of store is Night Owl Tacos?"
+   Point at Merchant Resolver's log: `unsure about 'Night Owl Tacos' (0.30);
+   trying a paid x402 lookup` -> `paid $0.001 test USDC via x402, tx 0x...`
+   -> `dining 5814 (0.85, paid_lookup_x402)`. "Our own agent paid for better
+   data instead of guessing."
+3. **Responsible (10s).** Ask "How much have the agents earned?" to see
+   earned, spent, and the remaining daily cap. "It has a hard daily cap
+   from `.env`. Over it, it doesn't pay and falls back to the free answer.
+   It only runs on a test network, and it refuses to start on a mainnet."
 
 ## Known gaps on this server branch
 
