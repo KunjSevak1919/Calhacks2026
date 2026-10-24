@@ -28,11 +28,14 @@ and canned Claude answers, so you can build the app right away.
 | GET/POST | `/api/settings` | Read or set `{debt_guard: true/false}` |
 | GET | `/api/payback/<card_id>` | Pay in full vs. minimum, in dollars and months |
 
-## Fetch.ai agent
+## Fetch.ai agents
 
-`agents/` has a uAgents agent that puts Pocket Pilot in chat: Agent Chat
-Protocol (so it's usable in ASI:One), Agentverse mailbox registration, and a
-couple of REST endpoints for the app to call directly. It does no money math
-itself -- every number it says comes from the Flask API above. See
-[`agents/README.md`](agents/README.md) for setup, Agentverse/ASI:One steps,
-and a demo script.
+`agents/` has a team of three uAgents. Pocket Pilot is the only one users
+chat with (Agent Chat Protocol, so it's usable in ASI:One, plus a couple of
+REST endpoints); it delegates to two specialists over agent-to-agent
+messages -- Card Scorer (which card?) and Payment Planner (due dates,
+approve/dismiss, pay, impact) -- falling back to calling the Flask API
+directly if a specialist doesn't answer in time. No agent does its own money
+math; every number comes from the Flask API above. See
+[`agents/README.md`](agents/README.md) for setup, the architecture diagram,
+Agentverse/ASI:One registration steps, and a demo script.

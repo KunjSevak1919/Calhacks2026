@@ -2,21 +2,55 @@
 module (and therefore the yes/no confirmation flow and intent routing) is
 directly testable without a live agent runtime.
 
-No money math happens here. Every number shown to the user comes straight
-from api_client, which calls the Flask API in server/.
+No money math happens here. Every number shown to the user comes from a
+"delegate" -- an object with async score_pick/due_soon/execute_action/pay/
+impact methods. The default (DirectDelegate) calls the Flask API directly,
+same as before specialist agents existed. Pocket Pilot's real agent instead
+passes a SpecialistDelegate (defined in pocket_pilot_agent.py, which is
+allowed to import uagents) that tries the Card Scorer / Payment Planner
+agents first and falls back to DirectDelegate's behavior on timeout -- but
+dispatch.py doesn't need to know or care which path produced the answer.
 """
+import logging
 import time
+import uuid
 
 import api_client
 import intents
 
 PENDING_TTL_SECONDS = 600  # 10 minutes
 
+logger = logging.getLogger("pocket_pilot.dispatch")
+
 HELP_TEXT = (
     "I can: pick the best card for a purchase (\"use at Target for $42\"), "
     "turn Debt Guard on/off, tell you what's due soon, log a payment you already made, "
     "show how much you've saved, or answer credit questions. Just ask."
 )
+
+
+# ---------- delegate interface ----------
+
+class DirectDelegate:
+    """Calls the Flask API directly. The default delegate, and also what
+    SpecialistDelegate falls back to when a specialist doesn't answer."""
+
+    async def score_pick(self, request_id, merchant, amount, debt_guard=None):
+        return api_client.pick(merchant=merchant, amount=amount, debt_guard=debt_guard)
+
+    async def due_soon(self, request_id):
+        return api_client.get_notifications()
+
+    async def execute_action(self, request_id, sender, action, note_id):
+        if action == "approve":
+            return api_client.approve_notification(note_id)
+        return api_client.dismiss_notification(note_id)
+
+    async def pay(self, request_id, merchant, amount, card):
+        return api_client.pay(merchant=merchant, amount=amount, card_id=card)
+
+    async def impact(self, request_id):
+        return api_client.impact()
 
 
 # ---------- storage helpers (works with any .get(key)/.set(key, value) store,
@@ -74,20 +108,21 @@ def _format_notification(note):
     return f"{note['title']}. {note['body']}"
 
 
-def handle_pick(storage, sender, parsed):
+async def handle_pick(storage, sender, parsed, delegate):
     merchant = parsed.get("merchant")
     amount = parsed.get("amount")
     if amount is None:
         return "How much is the purchase, and where?"
+    request_id = str(uuid.uuid4())
     try:
-        result = api_client.pick(merchant=merchant, amount=amount)
+        result = await delegate.score_pick(request_id, merchant, amount)
     except api_client.ApiError as e:
         return str(e)
     set_last_pick(storage, sender, merchant, amount)
     return format_pick(result, merchant, amount)
 
 
-def handle_debt_guard(storage, sender, enabled):
+async def handle_debt_guard(storage, sender, enabled, delegate):
     try:
         api_client.set_debt_guard(enabled)
     except api_client.ApiError as e:
@@ -96,7 +131,8 @@ def handle_debt_guard(storage, sender, enabled):
     last_pick = get_last_pick(storage, sender)
     if last_pick and last_pick.get("amount") is not None:
         try:
-            result = api_client.pick(merchant=last_pick.get("merchant"), amount=last_pick["amount"])
+            request_id = str(uuid.uuid4())
+            result = await delegate.score_pick(request_id, last_pick.get("merchant"), last_pick["amount"])
             reply += " Same purchase, new pick: " + format_pick(result, last_pick.get("merchant"),
                                                                   last_pick["amount"])
         except api_client.ApiError:
@@ -104,9 +140,10 @@ def handle_debt_guard(storage, sender, enabled):
     return reply
 
 
-def handle_notifications(storage, sender):
+async def handle_notifications(storage, sender, delegate):
+    request_id = str(uuid.uuid4())
     try:
-        notes = api_client.get_notifications()
+        notes = await delegate.due_soon(request_id)
     except api_client.ApiError as e:
         return str(e)
     if not notes:
@@ -121,12 +158,13 @@ def handle_notifications(storage, sender):
     return reply
 
 
-def handle_confirm_yes(storage, sender):
+async def handle_confirm_yes(storage, sender, delegate):
     pending = get_pending(storage, sender)
     if not pending:
         return "I don't have anything waiting on a yes right now."
+    request_id = str(uuid.uuid4())
     try:
-        result = api_client.approve_notification(pending["note_id"])
+        result = await delegate.execute_action(request_id, sender, "approve", pending["note_id"])
     except api_client.ApiError as e:
         return str(e)
     clear_pending(storage, sender)
@@ -135,32 +173,35 @@ def handle_confirm_yes(storage, sender):
     return result.get("message", "Done.")
 
 
-def handle_confirm_no(storage, sender):
+async def handle_confirm_no(storage, sender, delegate):
     pending = get_pending(storage, sender)
     if not pending:
         return "Okay."
+    request_id = str(uuid.uuid4())
     try:
-        api_client.dismiss_notification(pending["note_id"])
+        await delegate.execute_action(request_id, sender, "dismiss", pending["note_id"])
     except api_client.ApiError as e:
         return str(e)
     clear_pending(storage, sender)
     return "Okay, skipping that for now."
 
 
-def handle_pay(parsed):
+async def handle_pay(parsed, delegate):
     merchant, amount, card = parsed.get("merchant"), parsed.get("amount"), parsed.get("card")
     if amount is None:
         return "How much did you pay, and where?"
+    request_id = str(uuid.uuid4())
     try:
-        result = api_client.pay(merchant=merchant, amount=amount, card_id=card)
+        result = await delegate.pay(request_id, merchant, amount, card)
     except api_client.ApiError as e:
         return str(e)
     return result.get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."
 
 
-def handle_impact():
+async def handle_impact(delegate):
+    request_id = str(uuid.uuid4())
     try:
-        result = api_client.impact()
+        result = await delegate.impact(request_id)
     except api_client.ApiError as e:
         return str(e)
     return result.get("message") or str(result)
@@ -182,8 +223,9 @@ def handle_reset_demo():
     return "Demo reset."
 
 
-def build_reply(sender, text, storage):
+async def build_reply(sender, text, storage, delegate=None):
     """Text + per-sender storage in, reply string out."""
+    delegate = delegate or DirectDelegate()
     pending = get_pending(storage, sender)
     parsed = intents.parse_intent(text, has_pending=bool(pending))
     if parsed["intent"] == "unknown":
@@ -195,21 +237,21 @@ def build_reply(sender, text, storage):
     if intent == "help":
         return HELP_TEXT
     if intent == "pick":
-        return handle_pick(storage, sender, parsed)
+        return await handle_pick(storage, sender, parsed, delegate)
     if intent == "debt_guard_on":
-        return handle_debt_guard(storage, sender, True)
+        return await handle_debt_guard(storage, sender, True, delegate)
     if intent == "debt_guard_off":
-        return handle_debt_guard(storage, sender, False)
+        return await handle_debt_guard(storage, sender, False, delegate)
     if intent == "notifications":
-        return handle_notifications(storage, sender)
+        return await handle_notifications(storage, sender, delegate)
     if intent == "confirm_yes":
-        return handle_confirm_yes(storage, sender)
+        return await handle_confirm_yes(storage, sender, delegate)
     if intent == "confirm_no":
-        return handle_confirm_no(storage, sender)
+        return await handle_confirm_no(storage, sender, delegate)
     if intent == "pay":
-        return handle_pay(parsed)
+        return await handle_pay(parsed, delegate)
     if intent == "impact":
-        return handle_impact()
+        return await handle_impact(delegate)
     if intent == "coach":
         return handle_coach(parsed.get("question") or text)
     if intent == "reset_demo":

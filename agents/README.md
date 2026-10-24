@@ -1,24 +1,65 @@
-# Pocket Pilot agent (Fetch.ai uAgents)
+# Pocket Pilot agents (Fetch.ai uAgents)
 
-A single uAgent that puts Pocket Pilot's Flask API (`server/`) into chat: it
-implements the [Agent Chat Protocol](https://innovationlab.fetch.ai/resources/docs/agent-communication/agent-chat-protocol)
-so it's discoverable and usable from ASI:One, registers on Agentverse via a
-mailbox, and also exposes plain REST endpoints for the app or other agents to
-call directly.
+A team of three uAgents. **Pocket Pilot is the only one users ever talk to**
+(Agent Chat Protocol, so it's discoverable and usable from ASI:One). It
+delegates the real work to two specialists over agent-to-agent messages:
 
-No money math happens in this agent -- every number it says comes straight
-from the Flask API in `server/`.
+```
+                      ASI:One / chat / REST
+                              |
+                              v
+                     +------------------+
+                     |   Pocket Pilot   |   chat protocol, intent parsing,
+                     |   (front door)   |   per-sender pending-confirmation
+                     +------------------+   store, coach, help, demo reset
+                        |            |
+          ScoreRequest  |            |  DueSoonRequest / ExecuteActionRequest
+         /ScoreResponse |            |  / PayRequest / ImpactRequest (+Response)
+                        v            v
+              +----------------+  +--------------------+
+              |  Card Scorer   |  |  Payment Planner   |
+              | (which card?)  |  | (money & state:    |
+              |                |  |  due dates, approve/|
+              |                |  |  dismiss, pay,      |
+              |                |  |  impact)            |
+              +----------------+  +--------------------+
+                        \            /
+                         v          v
+                     server/ Flask API (the real engine --
+                     scorer.py / planner.py / resolver.py)
+```
+
+If a specialist doesn't answer within 5 seconds (process down, mailbox not
+yet connected, network hiccup), Pocket Pilot falls back to calling the Flask
+API directly and still answers -- the user never sees a hang. Every reply
+comes from one of these two paths; no agent does its own money math.
 
 ## Files
 
-- `pocket_pilot_agent.py` -- the agent: chat protocol, REST handlers, mailbox.
-- `dispatch.py` -- pure chat/intent routing logic (no uagents import), so it's
-  unit-testable without a live agent runtime.
+- `pocket_pilot_agent.py` -- the front door: chat protocol, REST handlers,
+  mailbox, and `SpecialistDelegate` (tries a specialist, falls back on
+  timeout).
+- `card_scorer_agent.py` -- specialist: picks the best card for a purchase by
+  calling `/api/pick`. Its protocol is published so any other agent on
+  Agentverse can call it too (the hook for a future Coinbase x402 paid
+  endpoint -- not built here).
+- `payment_planner_agent.py` -- specialist: owns everything that changes
+  money or state -- due-soon notifications, approve/dismiss, pay, impact.
+- `messages.py` -- shared `uagents.Model` request/response classes, every
+  one carrying a `request_id` for correlated logging.
+- `dispatch.py` -- pure chat/intent routing logic (no uagents import), so
+  it's unit-testable without a live agent runtime. Talks to a "delegate"
+  (an object with async `score_pick`/`due_soon`/`execute_action`/`pay`/
+  `impact` methods) instead of the Flask API directly -- `DirectDelegate`
+  (the default) calls Flask directly; `SpecialistDelegate` (in
+  `pocket_pilot_agent.py`) tries the specialist agents first.
 - `intents.py` -- `parse_intent(text) -> dict`, deterministic first, with an
   optional LLM fallback behind `parse_intent_llm`.
-- `api_client.py` -- `requests` wrapper around the Flask API with timeouts and
-  clear errors.
-- `tests/` -- pytest, Flask API mocked.
+- `api_client.py` -- `requests` wrapper around the Flask API with timeouts
+  and clear errors. Shared by all three agents.
+- `run_all.py` -- starts all three agents as subprocesses with one command.
+- `tests/` -- pytest, Flask API mocked and specialists faked via the
+  delegate interface.
 
 ## Setup
 
@@ -31,11 +72,20 @@ pip install -r requirements.txt
 Add to the repo's `.env` (see `.env.example`):
 
 ```
-AGENT_SEED=some-long-random-string         # keeps the agent's address stable
 POCKET_PILOT_API_URL=http://localhost:5001
-AGENT_PORT=8001
+POCKET_PILOT_SEED=some-long-random-string
+POCKET_PILOT_PORT=8001
+CARD_SCORER_SEED=another-long-random-string
+CARD_SCORER_PORT=8002
+PAYMENT_PLANNER_SEED=yet-another-long-random-string
+PAYMENT_PLANNER_PORT=8003
 # ANTHROPIC_API_KEY=...                    # optional, only for intent-parsing fallback
 ```
+
+Seeds deterministically derive each agent's address (`Identity.from_seed(seed, 0)`,
+confirmed from uagents' own `Agent.__init__`), so Pocket Pilot computes the
+specialists' addresses from their seeds at startup -- no separate address
+variables to keep in sync, and nothing to copy-paste after a restart.
 
 ## Run
 
@@ -43,72 +93,92 @@ AGENT_PORT=8001
 # terminal 1
 cd server && python app.py          # http://localhost:5001
 
-# terminal 2
-cd agents && python pocket_pilot_agent.py
+# terminal 2 -- all three agents with one command
+cd agents && python run_all.py
 ```
 
-On startup the agent prints its address and an Agentverse inspector link, e.g.:
-
-```
-Pocket Pilot agent address: agent1q24ah...
-Inspector: https://agentverse.ai/inspect/?uri=http%3A%2F%2F127.0.0.1%3A8001&address=agent1q24ah...
-```
+Or run each separately in its own terminal if you want to watch one agent's
+log in isolation: `python card_scorer_agent.py`, `python payment_planner_agent.py`,
+`python pocket_pilot_agent.py`. Each prints its own address and Agentverse
+inspector link on startup.
 
 ### Test it
 
 ```bash
-pytest                              # agents/tests, Flask API mocked
+pytest                              # agents/tests, Flask API mocked, specialists faked
 
-# REST (PowerShell)
+# REST against Pocket Pilot (PowerShell)
 Invoke-RestMethod -Method Post http://localhost:8001/pick -Body '{"merchant":"Whole Foods","amount":84.5}' -ContentType 'application/json'
 
-# REST (bash)
+# REST (bash) -- this exercises the real Pocket Pilot -> Card Scorer agent
+# message, not just dispatch.py's unit tests
 curl -X POST http://localhost:8001/pick -H 'Content-Type: application/json' \
   -d '{"merchant":"Whole Foods","amount":84.5}'
 
-curl http://localhost:8001/health
+curl http://localhost:8001/health   # also reports both specialists' addresses
 ```
 
-## Connect the mailbox on Agentverse
+## Register all three on Agentverse
+
+Each agent needs this done once (repeat for Pocket Pilot, Card Scorer, and
+Payment Planner):
 
 1. With the agent running, open the **Inspector** link it printed.
 2. Click **Connect** in the Agent Inspector UI.
 3. Choose **Mailbox** (the other options are Proxy and Custom).
-4. That's it -- the agent registers itself automatically; the terminal log
-   shows "Agent mailbox not found: create one using the agent inspector"
-   until you do this, then switches to normal operation. No separate API key
-   step is needed for a local dev agent.
-5. Go to [Agentverse](https://agentverse.ai) -> **My Agents**. The agent shows
-   up tagged **Mailbox**.
+4. The terminal log switches from "Agent mailbox not found: create one using
+   the agent inspector" to normal operation -- no separate API key step
+   needed for a local dev agent.
+5. Go to [Agentverse](https://agentverse.ai) -> **My Agents**. All three
+   show up tagged **Mailbox**.
 
-## Make it discoverable in ASI:One
+**Only Pocket Pilot needs this for users to find it in ASI:One.** Card
+Scorer and Payment Planner also register so Card Scorer is independently
+discoverable/callable by other Agentverse agents (per the challenge spec),
+but nobody chats with them directly.
+
+## Descriptions + keywords for each agent's profile
 
 Per Agentverse's [agent discovery setup guide](https://docs.agentverse.ai/documentation/agent-discovery/setup-guide),
-ASI:One ranks agents on: Agent Chat Protocol enabled (done, via `chat_proto`
-in this file), a README, an avatar, and a few real interactions logged.
+ASI:One ranks agents on: Agent Chat Protocol enabled, a README, an avatar,
+and a few real interactions logged. Set these on each agent's **Profile**
+and **README/About** tab:
 
-On the agent's Agentverse page:
-1. **Profile** tab -- set a short description and upload an avatar.
-2. **README/About** -- the text ASI:One uses to understand what the agent
-   does. Use something like:
+**Pocket Pilot** (the one users find in ASI:One):
+> Pocket Pilot picks the best credit card for a purchase, flips Debt Guard
+> on when you're carrying a balance, reminds you about due dates and
+> subscriptions before they cost you, and explains credit in plain words --
+> built for college students with more than one card. Every action it
+> takes needs your "yes" first.
 
-   > Pocket Pilot picks the best credit card for a purchase, flips Debt Guard
-   > on when you're carrying a balance, reminds you about due dates and
-   > subscriptions before they cost you, and explains credit in plain words --
-   > built for college students with more than one card. Every action it
-   > takes needs your "yes" first.
+Keywords: `credit card`, `which card`, `students`, `debt`, `due dates`,
+`rewards`, `personal finance`, `debt guard`.
 
-3. **Keywords/tags** -- add: `credit card`, `which card`, `students`,
-   `debt`, `due dates`, `rewards`, `personal finance`, `debt guard`.
-4. Send it a handful of test messages from the **Testing** dashboard (the
-   setup guide recommends ~10 interactions) so it has activity before judges
-   search for it.
+**Card Scorer** (discoverable by other agents, not meant for chat):
+> Scores a student's credit cards for a given purchase (merchant + amount)
+> and returns the best card, why, and the runner-up, using real
+> rewards-vs-interest math -- no LLM in the scoring path. Callable by any
+> agent that needs a card recommendation.
+
+Keywords: `card scoring`, `rewards`, `cashback`, `merchant category`,
+`credit card recommendation`.
+
+**Payment Planner** (discoverable, not meant for chat):
+> Tracks a student's due dates, subscriptions, and annual fees, and
+> executes approve/pay/dismiss actions -- but only when explicitly told to
+> by a trusted front-door agent on behalf of a user who said "yes."
+
+Keywords: `due dates`, `bill reminders`, `subscriptions`, `payments`,
+`personal finance automation`.
+
+Send each agent a handful of test messages from its **Testing** dashboard
+(~10 interactions, per the setup guide) so it has activity before judges
+search for it.
 
 ## Chat with it in ASI:One
 
-Open [asi1.ai](https://asi1.ai) (or ASI:One chat), search for "Pocket Pilot"
-or one of the keywords above, and start a conversation -- or message the
-agent's address directly from any other uAgent/ASI:One session.
+Open [asi1.ai](https://asi1.ai), search "Pocket Pilot" or one of its
+keywords, and start a conversation.
 
 ### Example prompts
 
@@ -126,25 +196,48 @@ agent's address directly from any other uAgent/ASI:One session.
 
 `server/app.py` on this branch doesn't have `/api/pay`, `/api/impact`,
 `/api/log`, or `/api/demo/reset`. The `pay`, `impact`, and `reset demo`
-intents are fully wired on the agent side (`api_client.py`, `dispatch.py`) --
-they'll just reply "`/api/pay isn't available on this server yet.`" (etc.)
-until those routes exist in `server/`. No agent code needs to change when
-they land.
+intents are fully wired through Payment Planner and `api_client.py` --
+they'll just reply "isn't available on this server yet" until those routes
+exist in `server/`. No agent code needs to change when they land.
 
-## Demo script
+## 60-second "behind the scenes" script for judges
 
-1. **Link**: start Flask (`server/app.py`), start the agent, open its
-   Inspector link, click Connect -> Mailbox.
-2. **Pick**: in ASI:One chat, send `Which card should I use at Whole Foods
-   for $84.50?` -> agent replies with the best card, a one-line reason, and
-   the runner-up (e.g. *"Aurum Gold earns 4% on grocery, $3.38 back... Runner-up: Steady 2%."*).
-3. **Debt Guard flip**: send `I'm carrying a balance` -> agent turns Debt
-   Guard on and re-answers the same purchase: *"Debt Guard is now on. Same
-   purchase, new pick: ..."*.
-4. **Due soon**: send `Anything due soon?` -> agent summarizes the top
-   alert and asks *"Want me to take care of it? (yes/no)"*.
-5. **Yes**: send `yes` -> agent calls the approve endpoint and confirms what
-   it did, e.g. *"Scheduled $50 to Card1 on Nov 3."*
+1. **What's running** (point at the three terminal logs, or one shared one
+   from `run_all.py`): "Pocket Pilot is the only agent a user talks to --
+   it's on Agent Chat Protocol, registered on Agentverse, usable from
+   ASI:One. Behind it are two specialists it delegates to over agent-to-agent
+   messages: Card Scorer, which just answers 'which card', and Payment
+   Planner, which owns everything that touches money or state."
+2. **Show a pick happening** -- ask Pocket Pilot "Which card should I use at
+   Whole Foods for $84.50?" (chat, or `curl .../pick`). Point at the log
+   line `[req-id] Card Scorer answered via agent message` -- that's a real
+   agent-to-agent round trip, not a function call.
+3. **Show the safety net** -- kill the Card Scorer process (Ctrl+C its
+   terminal, or `Stop-Process`). Ask the same question again. It still
+   answers correctly. Point at the log lines: `ERROR: [dispenser]: Failed to
+   deliver message to agent1q...` immediately followed by
+   `WARNING: [pocket-pilot]: [req-id] Card Scorer unreachable/timed out,
+   falling back to direct API`. Say: "Judges can kill any specialist mid-demo
+   and it still works -- Pocket Pilot calls the Flask API directly instead.
+   The user never sees a hang, and every number still comes from the real
+   engine either way, never invented by an LLM."
+4. **Show the approval gate** -- ask "anything due soon?", then "yes".
+   Point at Payment Planner's log line showing it executed the exact
+   `note_id` Pocket Pilot forwarded, for the exact sender who said yes.
+   Say: "No agent moves money or changes settings without that explicit
+   yes, and it only works for the person who was actually asked."
+
+## Demo script (full flow)
+
+1. **Link**: start Flask (`server/app.py`), start all three agents
+   (`python run_all.py`), open each Inspector link, click Connect -> Mailbox.
+2. **Pick**: send `Which card should I use at Whole Foods for $84.50?` ->
+   best card, one-line reason, runner-up.
+3. **Debt Guard flip**: send `I'm carrying a balance` -> Debt Guard turns on,
+   re-answers the same purchase: "Same purchase, new pick: ...".
+4. **Due soon**: send `Anything due soon?` -> top alert summarized, asks
+   "Want me to take care of it? (yes/no)".
+5. **Yes**: send `yes` -> Payment Planner executes it, confirms what it did.
 6. **Impact**: send `How much have you saved me?` -> replies with the
    impact number once `/api/impact` exists on `server/`; today it replies
    that the endpoint isn't available yet.
