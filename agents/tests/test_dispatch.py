@@ -516,3 +516,33 @@ def test_vfc_rules_summarized(monkeypatch):
     assert reply.startswith("Your Visa Flexible rules (simulated, not a real Visa API):")
     assert "1) Pay with CREDIT on your best rewards card for this store's category." in reply
     assert "3) Split into 4 equal INSTALLMENTS, 14 days apart." in reply
+
+
+# ---------- conversations are keyed by sender AND session ----------
+
+def test_conversation_key_combines_sender_and_session():
+    assert dispatch.conversation_key("agent1alice", "s1") == "agent1alice:s1"
+
+
+def test_other_sender_in_same_session_cannot_approve():
+    storage = FakeStorage()
+    alice = dispatch.conversation_key("agent1alice", "session-1")
+    mallory = dispatch.conversation_key("agent1mallory", "session-1")
+    dispatch.set_pending(storage, alice, "approve", DUE_NOTE)
+
+    delegate = FakeDelegate(execute_action_result={"message": "Scheduled"})
+    reply = run(dispatch.build_reply(mallory, "yes", storage, delegate=delegate))
+    assert not delegate.calls
+    assert reply == dispatch.NOTHING_PENDING_MESSAGE
+    assert dispatch.get_pending(storage, alice) is not None
+
+    reply = run(dispatch.build_reply(alice, "yes", storage, delegate=delegate))
+    assert reply.startswith("Done.")
+
+
+def test_last_pick_is_per_sender_in_same_session(monkeypatch):
+    storage = FakeStorage()
+    alice = dispatch.conversation_key("agent1alice", "session-1")
+    bob = dispatch.conversation_key("agent1bob", "session-1")
+    dispatch.set_last_pick(storage, alice, "Whole Foods", 84.5)
+    assert dispatch.get_last_pick(storage, bob) is None

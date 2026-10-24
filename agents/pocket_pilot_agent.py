@@ -244,18 +244,16 @@ async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage):
 
     text = "".join(item.text for item in msg.content if isinstance(item, TextContent))
     # Diagnostic: one line per incoming chat message, raw text as sent (before
-    # any normalization), plus both identifiers ASI:One gives us. Confirmed
-    # from uagents' own source (asgi.py/mailbox.py pass session=env.session
-    # on every incoming envelope) that `ctx.session` is the sender-controlled,
-    # per-conversation id the chat protocol's Start/EndSessionContent are
-    # designed to bound -- unlike `sender`, which we can't verify stays
-    # mapped to one ASI:One user rather than a shared relay identity, so the
-    # pending-confirmation store below is keyed by session, not sender.
+    # any normalization), plus both identifiers ASI:One gives us. `ctx.session`
+    # is the per-conversation id (uagents' asgi.py/mailbox.py pass
+    # session=env.session on every incoming envelope), but the session id is
+    # chosen by the sender, so it alone can't prove who is talking. The
+    # pending-confirmation store is keyed by sender AND session.
     ctx.logger.info(f"chat <- sender={sender} session={ctx.session} text={text!r}")
     if not text.strip():
         return
 
-    conv_id = str(ctx.session)
+    conv_id = dispatch.conversation_key(sender, ctx.session)
     try:
         reply = await dispatch.build_reply(conv_id, text, ctx.storage, delegate=SpecialistDelegate(ctx))
     except Exception:

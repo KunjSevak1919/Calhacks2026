@@ -69,6 +69,13 @@ class DirectDelegate:
         return result.get("store")
 
 
+def conversation_key(sender, session):
+    """One chat = one sender in one session. Pending approvals and last
+    purchase are stored under this, so someone else who knows (or shares)
+    the session id still can't approve another sender's action."""
+    return f"{sender}:{session}"
+
+
 # ---------- storage helpers (works with any .get(key)/.set(key, value) store,
 # e.g. ctx.storage from uagents, or a plain dict-backed fake in tests) ----------
 
