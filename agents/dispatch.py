@@ -423,6 +423,26 @@ def handle_card_details(storage, sender, parsed):
     return card_replies.format_card(card)
 
 
+def handle_payback(storage, sender, parsed):
+    try:
+        cards = api_client.wallet().get("cards") or []
+    except api_client.ApiError as e:
+        return str(e)
+    card = card_replies.find_card(parsed.get("raw"), cards)
+    if card is None and parsed.get("card_query"):
+        return card_replies.unknown_card(parsed["card_query"], cards)
+    if card is None:  # "what if I only pay the minimum?" right after asking about a card
+        card = next((c for c in cards if c.get("id") == get_last_card(storage, sender)), None)
+    if card is None:
+        return card_replies.unknown_card(None, cards)
+    set_last_card(storage, sender, card.get("id"))
+    try:
+        plan = api_client.payback(card["id"])
+    except api_client.ApiError as e:
+        return str(e)
+    return card_replies.format_payback(card, plan)
+
+
 def handle_reset_demo():
     if not demo_mode_on():
         return "Demo reset is turned off."
@@ -575,6 +595,8 @@ async def _route(sender, text, storage, delegate=None):
         return handle_wallet()
     if intent == "card_details":
         return handle_card_details(storage, sender, parsed)
+    if intent == "payback":
+        return handle_payback(storage, sender, parsed)
     if intent == "vfc_authorize":
         return handle_vfc_authorize(storage, sender, parsed)
     if intent == "vfc_rules":

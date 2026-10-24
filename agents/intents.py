@@ -44,6 +44,9 @@ VFC_RULES_WORDS = ("visa rules", "vfc rules", "my rules", "flexible credential r
 CARD_DETAILS_RE = re.compile(
     r"\b(?:tell me about|tell me more about|more about|details (?:on|for|about)|info (?:on|about))"
     r"\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+card)?$", re.IGNORECASE)
+PAYBACK_WORDS = ("pay off", "pay it off", "paying off", "payoff", "pay back", "payback",
+                 "pay the minimum", "pay minimum", "only the minimum", "minimum payment")
+PAYOFF_CARD_RE = re.compile(r"pay(?:ing)?\s+off\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+card)?$", re.IGNORECASE)
 WALLET_WORDS = ("show my cards", "show me my cards", "list my cards", "my cards", "how am i doing",
                 "my wallet", "my balances", "show my balances")
 VFC_AUTHORIZE_WORDS = ("how should i pay", "which way should i pay", "visa flexible", "vfc")
@@ -109,6 +112,11 @@ def parse_intent(text, has_pending=False):
     m = CARD_DETAILS_RE.search(t)
     if m and _extract_amount(t) is None:
         return {"intent": "card_details", "card_query": m.group(1).strip(STRIP_CHARS), "raw": t}
+
+    if any(w in low for w in PAYBACK_WORDS):
+        m = PAYOFF_CARD_RE.search(t)
+        query = m.group(1).strip(STRIP_CHARS) if m else None
+        return {"intent": "payback", "card_query": query, "raw": t}
 
     if any(w in low for w in DEBT_GUARD_WORDS) or any(w in low for w in CARRYING_BALANCE_WORDS):
         turn_off = any(w in low for w in PAID_OFF_WORDS) or "off" in low or "disable" in low
@@ -181,7 +189,7 @@ def parse_intent_llm(text):
         "Reply with ONLY strict JSON, no prose, matching this shape: "
         '{"intent": one of ["pick","debt_guard_on","debt_guard_off","notifications",'
         '"confirm_yes","confirm_no","pay","impact","store_kind","vfc_authorize","vfc_rules",'
-        '"coach","reset_demo","help","wallet","card_details","unknown"],'
+        '"coach","reset_demo","help","wallet","card_details","payback","unknown"],'
         '"merchant": string or null, "amount": number or null, "question": string or null}. '
         f"Message: {text!r}"
     )

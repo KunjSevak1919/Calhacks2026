@@ -732,3 +732,51 @@ def test_tell_me_about_a_credit_topic_goes_to_coach(monkeypatch):
     monkeypatch.setattr(api_client, "ask_coach", lambda q, history=None: {"answer": "A score is..."})
     reply = run(dispatch.build_reply("alice", "tell me about credit scores", FakeStorage()))
     assert reply == "A score is..."
+
+
+AURUM_PAYBACK_REPLY = ("Aurum Gold: $640.00 at 29.9% APR.\n"
+                       "- Pay in full: 1 month, $0.00 interest.\n"
+                       "- Minimum only: 42 months (about 3.5 years), $391.85 interest.")
+
+
+@pytest.mark.parametrize("text", [
+    "How long to pay off Aurum Gold?", "how long to pay off aurum", f"{MENTION} how long to pay off my aurum card",
+    "what if I only pay the minimum on Aurum Gold?", "\u201cWhat if I only pay the minimum on aurum?\u201d",
+])
+def test_payback(monkeypatch, text):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    asked = []
+    monkeypatch.setattr(api_client, "payback", lambda card_id: asked.append(card_id) or PAYBACK_AURUM)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    assert reply == AURUM_PAYBACK_REPLY
+    assert asked == ["aurum"]
+
+
+def test_minimum_question_follows_the_last_card_asked_about(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "payback", lambda card_id: PAYBACK_AURUM)
+    storage = FakeStorage()
+    run(dispatch.build_reply("alice", "tell me about aurum", storage))
+    reply = run(dispatch.build_reply("alice", f"{MENTION} what if I only pay the minimum?", storage))
+    assert reply == AURUM_PAYBACK_REPLY
+
+
+def test_minimum_question_without_a_card_asks_which(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", "what if I only pay the minimum?", FakeStorage()))
+    assert reply == "Which card? Your cards: Aurum Gold, Steady 2%, Zero Intro, Spin 5%, Voyager."
+
+
+def test_payback_unknown_card_lists_cards(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    reply = run(dispatch.build_reply("alice", "how long to pay off my Sapphire", FakeStorage()))
+    assert reply.startswith("I don't see a card called \"Sapphire\".")
+
+
+def test_payback_zero_balance(monkeypatch):
+    monkeypatch.setattr(api_client, "wallet", lambda: WALLET)
+    monkeypatch.setattr(api_client, "payback", lambda card_id: {
+        "apr": 0.0, "balance": 0.0, "minimum_only": {"interest": 0.0, "months": 0},
+        "pay_in_full": {"interest": 0.0, "months": 0}})
+    reply = run(dispatch.build_reply("alice", "how long to pay off zero intro", FakeStorage()))
+    assert reply == "Zero Intro has no balance, so there's nothing to pay off."

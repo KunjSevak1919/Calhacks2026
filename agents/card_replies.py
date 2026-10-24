@@ -121,3 +121,24 @@ def format_card(card):
             f"({percent(card.get('usage'))} used), {apr(card.get('apr'))}, {_due(card)}. "
             f"{fee_text} {money(card.get('rewards_ytd'))} in rewards this year.\n"
             f"{_usage_tip(card.get('usage_tip'))}")
+
+
+def _months(n):
+    if n is None:
+        return f"{MISSING} months"
+    if n == 1:
+        return "1 month"
+    if n >= 12:
+        return f"{n} months (about {n / 12:.1f} years)"
+    return f"{n} months"
+
+
+def format_payback(card, plan):
+    """GET /api/payback/<card>: pay in full vs. minimum only."""
+    name = card.get("name", "That card")
+    if not plan.get("balance"):
+        return f"{name} has no balance, so there's nothing to pay off."
+    full, minimum = plan.get("pay_in_full") or {}, plan.get("minimum_only") or {}
+    return (f"{name}: {money(plan.get('balance'))} at {apr(plan.get('apr'))}.\n"
+            f"- Pay in full: {_months(full.get('months'))}, {money(full.get('interest'))} interest.\n"
+            f"- Minimum only: {_months(minimum.get('months'))}, {money(minimum.get('interest'))} interest.")
