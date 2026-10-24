@@ -1,1 +1,1 @@
-export const SERVER_URL = "ipconfig getifaddr en0:5001";
+export const SERVER_URL = "http://10.0.5.185:5001";

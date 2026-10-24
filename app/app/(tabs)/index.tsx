@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
 
   // Modal
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#00000088",
   },
   sheet: {

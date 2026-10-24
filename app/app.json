@@ -7,6 +7,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0E14",
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.calhacks.pocketpilot"
@@ -14,12 +15,18 @@
     "android": {
       "package": "com.calhacks.pocketpilot",
       "adaptiveIcon": {
-        "backgroundColor": "#0B0E14"
+        "backgroundColor": "#0B0E14",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
       }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
-      "expo-asset"
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
