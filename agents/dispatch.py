@@ -27,10 +27,30 @@ PENDING_TTL_SECONDS = 600  # 10 minutes
 logger = logging.getLogger("pocket_pilot.dispatch")
 
 HELP_TEXT = (
-    "I can: pick the best card for a purchase (\"use at Target for $42\"), "
-    "turn Debt Guard on/off, tell you what's due soon, log a payment you already made, "
-    "show how much you've saved, or answer credit questions. Just ask."
+    "Here's everything I can do. Ask in your own words.\n\n"
+    "Pay smart\n"
+    "- \"Which card should I use at Whole Foods for $84.50?\"\n"
+    "- \"How should I pay at Best Buy for $600?\" (Visa Flexible, simulated)\n"
+    "- \"Show my Visa rules\"\n"
+    "- \"I'm carrying a balance\" or \"Turn off Debt Guard\"\n"
+    "- \"What kind of store is Costco?\"\n\n"
+    "Never miss a deadline\n"
+    "- \"Anything due soon?\", then \"yes\" or \"no\"\n"
+    "- \"Show my cards\" or \"How am I doing?\"\n"
+    "- \"Is my Voyager fee worth it?\"\n"
+    "- \"How much have you saved me?\"\n\n"
+    "Understand your credit\n"
+    "- \"Tell me about Aurum Gold\"\n"
+    "- \"How long to pay off Aurum Gold?\" or \"What if I only pay the minimum?\"\n"
+    "- \"Why did my score drop?\"\n\n"
+    "I never pay or cancel anything without your \"yes\"."
 )
+
+
+def help_text():
+    if demo_mode_on():
+        return HELP_TEXT + "\n\nDemo: \"reset demo\" starts over."
+    return HELP_TEXT
 
 
 # ---------- delegate interface ----------
@@ -597,7 +617,7 @@ async def _route(sender, text, storage, delegate=None):
 
     intent = parsed["intent"]
     if intent == "help":
-        return HELP_TEXT
+        return help_text()
     if intent == "pick":
         return await handle_pick(storage, sender, parsed, delegate)
     if intent == "debt_guard_on":

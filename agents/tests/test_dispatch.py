@@ -837,3 +837,29 @@ def test_annual_fee_not_coming_up(monkeypatch):
     delegate = FakeDelegate(due_soon_result=[])
     reply = run(dispatch.build_reply("alice", "is my annual fee worth it", FakeStorage(), delegate=delegate))
     assert reply == "Voyager's $95.00 annual fee isn't coming up soon, so there's nothing to decide yet."
+
+
+@pytest.mark.parametrize("text", ["help", f"{MENTION} help", "“help”", "what can you do?"])
+def test_help_is_grouped(monkeypatch, text):
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    reply = run(dispatch.build_reply("alice", text, FakeStorage()))
+    pay, deadline, credit = (reply.index(h) for h in
+                             ("Pay smart\n", "Never miss a deadline\n", "Understand your credit\n"))
+    assert pay < deadline < credit
+    for example in ("Show my Visa rules", "Show my cards", "Is my Voyager fee worth it?",
+                    "Tell me about Aurum Gold", "How long to pay off Aurum Gold?", "Anything due soon?"):
+        assert example in reply
+    assert "reset demo" not in reply
+
+
+def test_help_mentions_reset_only_in_demo_mode(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "on")
+    assert "reset demo" in run(dispatch.build_reply("alice", "help", FakeStorage()))
+
+
+@pytest.mark.parametrize("example", [
+    line.split('"')[1] for line in dispatch.HELP_TEXT.splitlines() if line.startswith("- \"")])
+def test_every_help_example_parses_to_a_real_intent(example):
+    """No help example may fall through to "Not sure what you mean"."""
+    import intents
+    assert intents.parse_intent(example)["intent"] not in ("unknown", "help")
