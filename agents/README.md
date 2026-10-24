@@ -358,6 +358,14 @@ so private keys stay inside CDP.
   settled by the facilitator, and the answer comes back with a
   `PAYMENT-RESPONSE` receipt carrying the tx hash. A request we reject
   (bad input, engine down) is never settled, so the caller isn't charged.
+- **Never charged without the answer:** every facilitator call is logged
+  with its duration and exact error, and a failed settle is retried once.
+  - Before giving up, the server asks the chain whether the payment went
+    through anyway (e.g. it settled but the reply was lost). If it did, the
+    caller gets the answer and the tx.
+  - If it really failed, the caller gets a JSON error with the reason and
+    `"charged": false` (checked on-chain), instead of x402's bare `402 {}`.
+  - A signed payment stays usable for only 120 seconds.
 - **Pay:** when Merchant Resolver is unsure about a store (confidence below
   0.6), it pays `/x402/merchant-data` from its own wallet and uses the
   answer only if it's more confident. Each store is paid for at most once
@@ -365,7 +373,11 @@ so private keys stay inside CDP.
 - **Spending caps:** the paying wallet has a hard daily cap
   (`X402_DAILY_CAP_USD`, default $0.05) and a per-call max
   (`X402_MAX_PER_CALL_USD`, default $0.01).
-  - A payment counts against the cap from the moment we agree to sign it.
+  - Only confirmed payments count against the cap: a receipt with a tx, or
+    the chain showing our payment was used. A payment that fails costs
+    nothing against the cap.
+  - While a payment is in flight its amount is held, so two payments at
+    once can't both slip under the cap.
   - Over either limit, it doesn't pay, keeps the free answer, and logs why:
     `x402: didn't pay or failed (over daily cap: spent $0.05 of $0.05 today ...)`.
   - It only ever signs for Base Sepolia test USDC.
@@ -400,6 +412,9 @@ Payments MCP (its client wrapper `@x402/mcp` is TypeScript only).
 | `x402_payer.py` | Pays an x402 endpoint within the caps (pay). Never raises; returns the answer or why it didn't pay. |
 | `paid_lookup.py` | Merchant Resolver's paid lookup + per-store cache. |
 | `x402_ledger.py` | Earned/spent log and `SpendGuard` (caps). |
+| `x402_facilitator.py` | Logs facilitator calls, retries settle once, checks on-chain before calling a payment failed. |
+| `x402_chain.py` | Asks Base Sepolia whether a payment's authorization was used (and finds the tx). |
+| `agent_timeouts.py` | How long agents wait for each other (longer with x402 on). |
 | `x402_config.py` | `.env` settings, testnet guard, on/off reason. |
 | `x402_wallet.py` | CDP accounts, faucet, balances. |
 | `x402_report.py` | The chat reply. |
@@ -438,6 +453,17 @@ Base Sepolia, USDC address, our address), `[2]` its wallet and the signed
 payment within its caps, `[3]` the answer (best card, reason, MCC) and the
 receipt with a Basescan link. Its spending is logged separately, in
 `.x402/demo-client/`.
+
+If `[3]` says `No answer`, the message gives the reason and whether you
+were charged. `x402_server.py`'s log shows the facilitator's exact error,
+e.g. `facilitator settle attempt 1 returned failure in 0.4s:
+invalid_exact_evm_transaction_failed: ...`. That one is the public
+facilitator failing to broadcast to Base Sepolia; it's usually transient,
+so run the demo again.
+
+With x402 on, Card Scorer waits 7s for Merchant Resolver (4s off), and
+Pocket Pilot waits 15s for Card Scorer (10s off), since a paid lookup comes
+first.
 
 ### 30-second judge script
 
