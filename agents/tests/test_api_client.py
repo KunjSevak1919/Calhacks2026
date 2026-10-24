@@ -83,3 +83,34 @@ def test_404_missing_route_is_not_marked_not_found(monkeypatch):
 
 def test_error_without_not_found_kwarg_defaults_false():
     assert api_client.ApiError("boom").not_found is False
+
+
+def test_pick_timeout_retries_once_without_claude_explanation(monkeypatch):
+    bodies = []
+
+    def slow_then_fast(method, url, timeout=None, json=None, **kw):
+        bodies.append(dict(json))
+        if json.get("explain"):
+            raise requests.exceptions.ReadTimeout("slow")
+        return _FakeResponse(json_data={"reason": "template"})
+
+    monkeypatch.setattr(api_client.requests, "request", slow_then_fast)
+    assert api_client.pick(merchant="Whole Foods", amount=84.5) == {"reason": "template"}
+    assert [b["explain"] for b in bodies] == [True, False]
+    assert bodies[1]["merchant"] == "Whole Foods" and bodies[1]["amount"] == 84.5
+
+
+def test_pick_connection_error_is_not_retried(monkeypatch):
+    calls = []
+
+    def refused(method, url, timeout=None, **kw):
+        calls.append(1)
+        raise requests.exceptions.ConnectionError("refused")
+
+    monkeypatch.setattr(api_client.requests, "request", refused)
+    try:
+        api_client.pick(merchant="Target", amount=10)
+        assert False, "expected ApiError"
+    except api_client.ApiError as e:
+        assert "Can't reach" in str(e)
+    assert calls == [1]
