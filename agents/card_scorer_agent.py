@@ -25,16 +25,16 @@ from uagents_core.identity import Identity  # noqa: E402
 import api_client  # noqa: E402
 import card_scorer  # noqa: E402
 from messages import CardSummary, ResolveRequest, ResolveResponse, ScoreRequest, ScoreResponse  # noqa: E402
+from seeds import require_seed  # noqa: E402
 
 CARD_SCORER_PORT = int(os.getenv("CARD_SCORER_PORT", "8002"))
-MERCHANT_RESOLVER_SEED = os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed")
-MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(MERCHANT_RESOLVER_SEED, 0).address
+MERCHANT_RESOLVER_ADDRESS = Identity.from_seed(require_seed("MERCHANT_RESOLVER_SEED"), 0).address
 
 RESOLVER_TIMEOUT_SECONDS = 4
 
 agent = Agent(
     name="card-scorer",
-    seed=os.getenv("CARD_SCORER_SEED", "card-scorer-dev-seed"),
+    seed=require_seed("CARD_SCORER_SEED"),
     port=CARD_SCORER_PORT,
     mailbox=True,
     publish_agent_details=True,

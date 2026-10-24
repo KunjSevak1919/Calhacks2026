@@ -25,12 +25,13 @@ from uagents import Agent, Context, Protocol  # noqa: E402
 
 import merchant_resolver  # noqa: E402
 from messages import ResolveRequest, ResolveResponse  # noqa: E402
+from seeds import require_seed  # noqa: E402
 
 MERCHANT_RESOLVER_PORT = int(os.getenv("MERCHANT_RESOLVER_PORT", "8004"))
 
 agent = Agent(
     name="merchant-resolver",
-    seed=os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed"),
+    seed=require_seed("MERCHANT_RESOLVER_SEED"),
     port=MERCHANT_RESOLVER_PORT,
     mailbox=True,
     publish_agent_details=True,

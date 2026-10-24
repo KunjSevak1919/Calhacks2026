@@ -31,10 +31,10 @@ from messages import (  # noqa: E402
     PayRequest,
     PayResponse,
 )
+from seeds import require_seed  # noqa: E402
 
 PAYMENT_PLANNER_PORT = int(os.getenv("PAYMENT_PLANNER_PORT", "8003"))
-POCKET_PILOT_ADDRESS = Identity.from_seed(
-    os.getenv("POCKET_PILOT_SEED", "pocket-pilot-dev-seed"), 0).address
+POCKET_PILOT_ADDRESS = Identity.from_seed(require_seed("POCKET_PILOT_SEED"), 0).address
 UNAUTHORIZED = "unauthorized"
 
 
@@ -44,7 +44,7 @@ def is_trusted_writer(sender):
 
 agent = Agent(
     name="payment-planner",
-    seed=os.getenv("PAYMENT_PLANNER_SEED", "payment-planner-dev-seed"),
+    seed=require_seed("PAYMENT_PLANNER_SEED"),
     port=PAYMENT_PLANNER_PORT,
     mailbox=True,
     publish_agent_details=True,

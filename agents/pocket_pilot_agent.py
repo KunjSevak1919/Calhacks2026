@@ -30,6 +30,7 @@ from uagents_core.identity import Identity  # noqa: E402
 import api_client  # noqa: E402
 import dispatch  # noqa: E402
 import messages  # noqa: E402
+from seeds import require_seed  # noqa: E402
 
 # Single-hop reads (due_soon, impact, resolve_merchant direct) can afford to
 # retry freely, so they stay snappy. score_pick is now a 2-hop chain --
@@ -45,10 +46,10 @@ SCORE_READ_TIMEOUT_SECONDS = 10
 WRITE_TIMEOUT_SECONDS = 15
 
 AGENT_PORT = int(os.getenv("POCKET_PILOT_PORT", os.getenv("AGENT_PORT", "8001")))
-POCKET_PILOT_SEED = os.getenv("POCKET_PILOT_SEED", os.getenv("AGENT_SEED", "pocket-pilot-dev-seed"))
-CARD_SCORER_SEED = os.getenv("CARD_SCORER_SEED", "card-scorer-dev-seed")
-PAYMENT_PLANNER_SEED = os.getenv("PAYMENT_PLANNER_SEED", "payment-planner-dev-seed")
-MERCHANT_RESOLVER_SEED = os.getenv("MERCHANT_RESOLVER_SEED", "merchant-resolver-dev-seed")
+POCKET_PILOT_SEED = require_seed("POCKET_PILOT_SEED")
+CARD_SCORER_SEED = require_seed("CARD_SCORER_SEED")
+PAYMENT_PLANNER_SEED = require_seed("PAYMENT_PLANNER_SEED")
+MERCHANT_RESOLVER_SEED = require_seed("MERCHANT_RESOLVER_SEED")
 
 # An agent's address is derived from its seed the same way `Agent(seed=...)`
 # does internally (Identity.from_seed(seed, 0)), so Pocket Pilot can know
