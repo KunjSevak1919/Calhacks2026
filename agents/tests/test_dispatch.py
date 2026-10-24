@@ -359,8 +359,46 @@ def test_confirm_yes_still_surfaces_real_errors():
             raise api_client.ApiError("Can't reach Pocket Pilot's server.")
 
     reply = run(dispatch.build_reply("alice", "yes", storage, delegate=BoomDelegate()))
-    assert "Can't reach" in reply
+    assert reply == "I couldn't do that, so nothing was paid. Try again."
+    assert "Done" not in reply
     assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_confirm_yes_unauthorized_is_a_failure_not_done():
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class UnauthorizedDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("unauthorized")
+
+    reply = run(dispatch.build_reply("alice", "yes", storage, delegate=UnauthorizedDelegate()))
+    assert reply == dispatch.WRITE_FAILED_MESSAGE
+    assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_confirm_no_real_failure_keeps_pending():
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class BoomDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("Can't reach Pocket Pilot's server.")
+
+    reply = run(dispatch.build_reply("alice", "no", storage, delegate=BoomDelegate()))
+    assert reply == dispatch.DISMISS_FAILED_MESSAGE
+    assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_pay_real_failure_says_nothing_was_paid():
+    storage = FakeStorage()
+
+    class BoomDelegate(FakeDelegate):
+        async def pay(self, action_id, merchant, amount, card):
+            raise api_client.ApiError("/api/pay isn't available on this server yet.", status_code=404)
+
+    reply = run(dispatch.build_reply("alice", "I paid $40 at Target", storage, delegate=BoomDelegate()))
+    assert reply == dispatch.WRITE_FAILED_MESSAGE
 
 
 def test_confirm_no_treats_not_found_error_as_already_handled():

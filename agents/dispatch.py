@@ -245,6 +245,9 @@ async def handle_notifications(storage, sender, delegate):
     return reply
 
 
+WRITE_FAILED_MESSAGE = "I couldn't do that, so nothing was paid. Try again."
+DISMISS_FAILED_MESSAGE = "I couldn't do that, so nothing changed. Try again."
+
 NOTHING_PENDING_MESSAGE = (
     "There's nothing waiting for your OK right now. "
     "Ask \"anything due soon?\" to see what I can do."
@@ -261,7 +264,8 @@ async def handle_confirm_yes(storage, sender, delegate):
         result = await delegate.execute_action(action_id, sender, "approve", note["id"])
     except api_client.ApiError as e:
         if not e.not_found:
-            return str(e)
+            logger.warning("approve %s failed: %s", note["id"], e)
+            return WRITE_FAILED_MESSAGE  # pending kept, so "yes" can retry
         # The server says it's gone -- in this flow that only happens because
         # it was already approved a moment earlier (e.g. a specialist's reply
         # arrived after our timeout and we'd already treated this as done).
@@ -297,7 +301,8 @@ async def handle_confirm_no(storage, sender, delegate):
         await delegate.execute_action(action_id, sender, "dismiss", note["id"])
     except api_client.ApiError as e:
         if not e.not_found:
-            return str(e)
+            logger.warning("dismiss %s failed: %s", note["id"], e)
+            return DISMISS_FAILED_MESSAGE
         # Already gone -- already dismissed/handled, which is fine.
     clear_pending(storage, sender)
     return "Okay, skipping that for now."
@@ -311,8 +316,11 @@ async def handle_pay(parsed, delegate):
     try:
         result = await delegate.pay(action_id, merchant, amount, card)
     except api_client.ApiError as e:
-        return str(e)
-    return result.get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."
+        if not e.not_found:
+            logger.warning("pay failed: %s", e)
+            return WRITE_FAILED_MESSAGE
+        result = None
+    return (result or {}).get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."
 
 
 async def handle_impact(delegate):

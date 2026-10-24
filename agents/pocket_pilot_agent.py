@@ -140,11 +140,13 @@ class SpecialistDelegate(dispatch.DirectDelegate):
             self.ctx.logger.info(f"[{action_id}] Payment Planner executed '{action}' via agent message")
             return {"message": resp.message}
         if resp is not None and not resp.ok:
-            # The specialist answered but the write itself failed server-side
-            # (e.g. already gone) -- nothing to retry, just no message to show.
+            # The specialist answered, so never retry. Only "not found" means
+            # it was already handled; anything else is a real failure.
             self.ctx.logger.warning(f"[{action_id}] Payment Planner reported '{action}' on "
-                                     f"{note_id} failed: {resp.error}")
-            return None
+                                     f"{note_id} failed: {resp.error} (not_found={resp.not_found})")
+            if resp.not_found:
+                return None
+            raise api_client.ApiError(resp.error or "Payment Planner refused the action.")
 
         self.ctx.logger.warning(f"[{action_id}] Payment Planner unreachable/timed out for "
                                  f"'{action}' on {note_id} -- checking whether it already "
@@ -173,6 +175,12 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         if resp is not None and resp.ok:
             self.ctx.logger.info(f"[{action_id}] Payment Planner logged payment via agent message")
             return {"message": resp.message}
+        if resp is not None and not resp.ok:
+            self.ctx.logger.warning(f"[{action_id}] Payment Planner reported pay failed: "
+                                     f"{resp.error} (not_found={resp.not_found})")
+            if resp.not_found:
+                return None
+            raise api_client.ApiError(resp.error or "Payment Planner refused the payment.")
         # /api/pay doesn't exist on this server branch yet (confirmed in
         # api_client.py), so a direct retry here is a guaranteed no-op 404,
         # never a real second write -- plain fallback is safe for now. If

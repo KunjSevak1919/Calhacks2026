@@ -87,7 +87,8 @@ async def handle_execute_action(ctx: Context, sender: str, msg: ExecuteActionReq
             raise api_client.ApiError(f"Unknown action {msg.action!r}")
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] {msg.action} failed: {e}")
-        await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=False, error=str(e)))
+        await ctx.send(sender, ExecuteActionResponse(request_id=msg.request_id, ok=False, error=str(e),
+                                                     not_found=e.not_found))
         return
     message = (result or {}).get("message", "Done.")
     ctx.logger.info(f"[{msg.request_id}] {msg.action} succeeded: {message}")
@@ -106,7 +107,8 @@ async def handle_pay(ctx: Context, sender: str, msg: PayRequest):
         result = api_client.pay(merchant=msg.merchant, amount=msg.amount, card_id=msg.card)
     except api_client.ApiError as e:
         ctx.logger.warning(f"[{msg.request_id}] pay failed: {e}")
-        await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=False, error=str(e)))
+        await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=False, error=str(e),
+                                           not_found=e.not_found))
         return
     message = result.get("message") or f"Logged ${msg.amount:.2f} at {msg.merchant or 'that purchase'}."
     await ctx.send(sender, PayResponse(request_id=msg.request_id, ok=True, message=message))

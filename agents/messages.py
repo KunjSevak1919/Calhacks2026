@@ -95,6 +95,8 @@ class ExecuteActionResponse(Model):
     ok: bool
     message: Optional[str] = None
     error: Optional[str] = None
+    # True only when the server said this note is gone (already handled).
+    not_found: bool = False
 
 
 class PayRequest(Model):
@@ -109,6 +111,7 @@ class PayResponse(Model):
     ok: bool
     message: Optional[str] = None
     error: Optional[str] = None
+    not_found: bool = False
 
 
 class ImpactRequest(Model):

@@ -84,3 +84,27 @@ def test_reads_stay_open_to_any_agent(monkeypatch):
     run(planner.handle_due_soon(ctx, STRANGER, DueSoonRequest(request_id="r3")))
     run(planner.handle_impact(ctx, STRANGER, ImpactRequest(request_id="r4")))
     assert [m.ok for _d, m in ctx.sent] == [True, True]
+
+
+def test_execute_action_not_found_is_flagged(monkeypatch):
+    def gone(note_id):
+        raise api_client.ApiError("gone", status_code=404, not_found=True)
+
+    monkeypatch.setattr(api_client, "approve_notification", gone)
+    ctx = FakeCtx()
+    run(planner.handle_execute_action(ctx, POCKET_PILOT, _approve_req()))
+    (_dest, resp), = ctx.sent
+    assert resp.ok is False
+    assert resp.not_found is True
+
+
+def test_execute_action_real_failure_is_not_flagged_not_found(monkeypatch):
+    def boom(note_id):
+        raise api_client.ApiError("Can't reach Pocket Pilot's server.")
+
+    monkeypatch.setattr(api_client, "approve_notification", boom)
+    ctx = FakeCtx()
+    run(planner.handle_execute_action(ctx, POCKET_PILOT, _approve_req()))
+    (_dest, resp), = ctx.sent
+    assert resp.ok is False
+    assert resp.not_found is False
