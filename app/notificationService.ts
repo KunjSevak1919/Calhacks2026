@@ -7,6 +7,7 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import type { Notification as PilotNotification } from "./api";
+import { colors } from "./theme";
 
 // ── Foreground handler ────────────────────────────────────────────────────
 // Show notifications even when the app is in the foreground.
@@ -38,7 +39,7 @@ export async function requestPermission(): Promise<boolean> {
       name: "Pocket Pilot Alerts",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250],
-      lightColor: "#3DDC97",
+      lightColor: colors.good,
     });
   }
 

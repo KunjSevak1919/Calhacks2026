@@ -13,7 +13,7 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
 export default function CardTile({ card, onPress }: Props) {
-  const bg = card.color || colors.card;
+  const bg = card.color || colors.surface;
   const fg = card.text_color || "#ffffff";
   const daysUntilDue = card.due
     ? Math.ceil((new Date(card.due).getTime() - Date.now()) / 86_400_000)
@@ -47,7 +47,7 @@ export default function CardTile({ card, onPress }: Props) {
           <Text
             style={[
               styles.due,
-              { color: daysUntilDue <= 7 ? colors.amber : fg + "AA" },
+              { color: daysUntilDue <= 7 ? colors.warn : fg + "AA" },
             ]}
           >
             Due in {daysUntilDue}d
