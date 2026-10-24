@@ -50,6 +50,8 @@ PAYOFF_CARD_RE = re.compile(r"pay(?:ing)?\s+off\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\
 ANNUAL_FEE_WORDS = ("annual fee", "fee worth", "is my fee", "keep paying the fee")
 WALLET_WORDS = ("show my cards", "show me my cards", "list my cards", "my cards", "how am i doing",
                 "my wallet", "my balances", "show my balances")
+X402_WORDS = ("x402", "agents earned", "agents earn", "agents spent", "agents spend",
+              "agents made", "agent earnings", "agent spending")
 VFC_AUTHORIZE_WORDS = ("how should i pay", "which way should i pay", "visa flexible", "vfc")
 
 
@@ -104,6 +106,9 @@ def parse_intent(text, has_pending=False):
 
     if any(w in low for w in RESET_WORDS):
         return {"intent": "reset_demo", "raw": t}
+
+    if any(w in low for w in X402_WORDS):
+        return {"intent": "x402_stats", "raw": t}
 
     # Card-info questions never carry a purchase amount; "which of my cards
     # at Target for $20" is still a pick.
