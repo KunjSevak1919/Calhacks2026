@@ -33,21 +33,37 @@ export interface WalletResponse {
   source: string;
 }
 
+// Ranked card as returned by /api/pick — no color/text_color here.
+// Look those up from /api/wallet by card_id.
 export interface RankedCard {
-  id: string;
+  card_id: string;
   name: string;
   last4: string;
-  color: string;
-  text_color: string;
-  net_value: number;
+  eligible: boolean;
+  net: number;
+  reward: number;
+  interest: number;
+  fee: number;
+  penalty: number;
+  apr: number;
   rate_label: string;
-  rewards: number;
-  interest_cost: number;
-  fee_share: number;
+  new_usage: number;
+  warnings: string[];
+  bonus_note: string | null;
+}
+
+export interface PickStore {
+  merchant: string;
+  mcc: string;
+  category: string;
+  label: string;
+  confidence: number;
+  source: string;
+  note: string | null;
 }
 
 export interface PickResponse {
-  store: { label: string; category: string; confidence: number };
+  store: PickStore;
   uncertain: boolean;
   debt_guard: boolean;
   best: RankedCard;
@@ -55,13 +71,23 @@ export interface PickResponse {
   reason: string;
 }
 
+// Severity is not in the API response; derive from kind in the UI.
+export type NotificationKind =
+  | "due"
+  | "subscription"
+  | "annual_fee"
+  | "credit"
+  | "signup_bonus";
+
 export interface Notification {
   id: string;
-  kind: "due" | "subscription" | "annual_fee" | "utilization" | "bonus";
+  kind: NotificationKind;
   title: string;
   body: string;
-  severity: "warn" | "info" | "ok";
+  // action labels from the server, e.g. ["Approve","Later"] or ["Got it"]
+  actions: string[];
   data: Record<string, unknown>;
+  priority: number;
 }
 
 export interface PaybackResponse {
@@ -75,6 +101,7 @@ export interface PaybackResponse {
 
 export interface CoachResponse {
   answer: string;
+  source: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -93,7 +120,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? `POST ${path} → ${res.status}`);
+    throw new Error(
+      (err as { error?: string }).error ?? `POST ${path} → ${res.status}`
+    );
   }
   return res.json() as Promise<T>;
 }

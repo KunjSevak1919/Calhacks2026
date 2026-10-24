@@ -45,8 +45,8 @@ export default function NotificationsScreen() {
     setLoading((prev) => ({ ...prev, [id]: val }));
 
   const handleApprove = (note: Notification) => {
-    const actionLabel =
-      note.kind === "subscription" ? `Cancel ${(note.data as { name?: string }).name ?? "subscription"}` : "Do it";
+    // Use the action label from the server (actions[0]) for the confirm button.
+    const actionLabel = note.actions[0] ?? "Confirm";
     Alert.alert(note.title, note.body, [
       { text: "Cancel", style: "cancel" },
       {

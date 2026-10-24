@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Notification } from "../api";
+import { Notification, NotificationKind } from "../api";
 import { colors, spacing, radius, font } from "../theme";
 
 interface Props {
@@ -11,21 +11,48 @@ interface Props {
   loading?: boolean;
 }
 
-const severityIcon: Record<string, keyof typeof Ionicons.glyphMap> = {
+// Derive visual severity from the notification kind (severity isn't in the API).
+function severityFor(kind: NotificationKind): "warn" | "info" | "ok" {
+  switch (kind) {
+    case "due":
+    case "subscription":
+    case "annual_fee":
+      return "warn";
+    case "credit":
+      return "info";
+    case "signup_bonus":
+      return "ok";
+  }
+}
+
+const ICON: Record<"warn" | "info" | "ok", keyof typeof Ionicons.glyphMap> = {
   warn: "warning-outline",
   info: "information-circle-outline",
   ok: "checkmark-circle-outline",
 };
 
-const severityColor: Record<string, string> = {
+const ACCENT: Record<"warn" | "info" | "ok", string> = {
   warn: colors.amber,
   info: colors.blue,
   ok: colors.mint,
 };
 
-export default function NotificationCard({ note, onApprove, onDismiss, loading }: Props) {
-  const accent = severityColor[note.severity] ?? colors.blue;
-  const icon = severityIcon[note.severity] ?? "information-circle-outline";
+export default function NotificationCard({
+  note,
+  onApprove,
+  onDismiss,
+  loading,
+}: Props) {
+  const severity = severityFor(note.kind);
+  const accent = ACCENT[severity];
+  const icon = ICON[severity];
+
+  // actions[0] = primary action label (approve)
+  // actions[1] = secondary label (dismiss / keep / later)
+  // If only one action it's an "acknowledge" — we still call approve on it.
+  const primaryLabel = note.actions[0] ?? "Got it";
+  const secondaryLabel = note.actions[1];
+  const hasTwoActions = note.actions.length >= 2;
 
   return (
     <View style={[styles.card, { borderLeftColor: accent }]}>
@@ -37,21 +64,24 @@ export default function NotificationCard({ note, onApprove, onDismiss, loading }
 
       <View style={styles.actions}>
         <TouchableOpacity
-          style={[styles.btn, styles.approveBtn]}
+          style={[styles.btn, { backgroundColor: accent + "1A", borderColor: accent + "44" }, styles.primaryBtn]}
           onPress={onApprove}
           disabled={loading}
         >
-          <Text style={[styles.btnText, { color: colors.mint }]}>
-            {note.kind === "subscription" ? "Cancel it" : "Do it"}
-          </Text>
+          <Text style={[styles.btnText, { color: accent }]}>{primaryLabel}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btn, styles.dismissBtn]}
-          onPress={onDismiss}
-          disabled={loading}
-        >
-          <Text style={[styles.btnText, { color: colors.muted }]}>Later</Text>
-        </TouchableOpacity>
+
+        {hasTwoActions && (
+          <TouchableOpacity
+            style={[styles.btn, styles.dismissBtn]}
+            onPress={onDismiss}
+            disabled={loading}
+          >
+            <Text style={[styles.btnText, { color: colors.muted }]}>
+              {secondaryLabel}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -70,9 +100,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: spacing.xs,
   },
-  icon: {
-    marginRight: spacing.xs,
-  },
+  icon: { marginRight: spacing.xs },
   title: {
     color: colors.text,
     fontSize: font.md,
@@ -85,26 +113,14 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: spacing.md,
   },
-  actions: {
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
+  actions: { flexDirection: "row", gap: spacing.sm },
   btn: {
     flex: 1,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
     alignItems: "center",
   },
-  approveBtn: {
-    backgroundColor: colors.mint + "1A",
-    borderWidth: 1,
-    borderColor: colors.mint + "44",
-  },
-  dismissBtn: {
-    backgroundColor: colors.border,
-  },
-  btnText: {
-    fontSize: font.sm,
-    fontWeight: "600",
-  },
+  primaryBtn: { borderWidth: 1 },
+  dismissBtn: { backgroundColor: colors.border },
+  btnText: { fontSize: font.sm, fontWeight: "600" },
 });
