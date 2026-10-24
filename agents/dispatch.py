@@ -362,7 +362,14 @@ async def handle_impact(delegate):
     try:
         result = await delegate.impact(request_id)
     except api_client.ApiError as e:
-        return str(e)
+        if e.status_code != 404 or e.not_found:
+            return str(e)
+        # No /api/impact on this server: use the same numbers the app's
+        # home screen shows, from /api/wallet.
+        try:
+            return card_replies.format_impact(api_client.wallet().get("impact") or {})
+        except api_client.ApiError as e2:
+            return str(e2)
     return result.get("message") or str(result)
 
 

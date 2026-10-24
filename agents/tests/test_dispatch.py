@@ -120,15 +120,29 @@ def test_coach_question(monkeypatch):
     assert "Late fees" in reply
 
 
-def test_missing_endpoint_is_graceful(monkeypatch):
+def test_impact_falls_back_to_wallet_when_endpoint_missing(monkeypatch):
+    """No /api/impact on this server: use the wallet's impact block, the
+    same numbers the app's home screen shows."""
     storage = FakeStorage()
 
-    def missing(**kw):
+    def missing():
         raise api_client.ApiError("/api/impact isn't available on this server yet.", status_code=404)
 
     monkeypatch.setattr(api_client, "impact", missing)
+    monkeypatch.setattr(api_client, "wallet", lambda: {"impact": {
+        "interest_avoided": 16.0, "late_fees_avoided": 39.0, "rewards_this_month": 18.4}})
     reply = run(dispatch.build_reply("alice", "how much have you saved me?", storage))
-    assert "isn't available" in reply
+    assert reply == ("So far Pocket Pilot has saved you $16.00 in interest and $39.00 in late fees, "
+                     "and you've earned $18.40 in rewards this month.")
+
+
+def test_impact_server_down_is_graceful(monkeypatch):
+    def down():
+        raise api_client.ApiError("Can't reach Pocket Pilot's server at http://x.")
+
+    monkeypatch.setattr(api_client, "impact", down)
+    reply = run(dispatch.build_reply("alice", "how much have you saved me?", FakeStorage()))
+    assert "Can't reach" in reply
 
 
 # ---------- debt guard ON: names the new card first, then the cost trade-off ----------

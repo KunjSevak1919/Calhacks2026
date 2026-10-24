@@ -168,3 +168,12 @@ def format_no_fee_check(card):
         return f"{card.get('name', 'That card')} has no annual fee."
     return (f"{card.get('name', 'That card')}'s {money(card.get('annual_fee'))} annual fee isn't "
             "coming up soon, so there's nothing to decide yet.")
+
+
+def format_impact(impact):
+    """/api/wallet's impact block, the numbers on the app's home screen."""
+    if not impact:
+        return "Nothing saved yet. Ask me before your next purchase."
+    return (f"So far Pocket Pilot has saved you {money(impact.get('interest_avoided'))} in interest "
+            f"and {money(impact.get('late_fees_avoided'))} in late fees, and you've earned "
+            f"{money(impact.get('rewards_this_month'))} in rewards this month.")
