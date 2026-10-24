@@ -35,9 +35,12 @@ DEBT_GUARD_PICK_RESULT = {
     "reason": "irrelevant for this path",
 }
 
-DUE_NOTE = {"id": "due-card1", "kind": "due", "title": "Card1 is due soon",
-            "body": "Pay $50 on Friday.", "actions": ["Approve", "Later"],
-            "data": {"name": "Card1", "suggested": 50, "pay_on": "2026-10-29"}}
+# Mirrors the real due-aurum notification confirmed live against the server:
+# $640 to Aurum Gold on Oct 29 -- the exact numbers from the bug report.
+DUE_NOTE = {"id": "due-aurum", "kind": "due", "title": "Aurum Gold is due Oct 30",
+            "body": "Pay $640 on Oct 29, after payday?",
+            "actions": ["Approve", "Later"],
+            "data": {"name": "Aurum Gold", "suggested": 640, "pay_on": "2026-10-29"}}
 
 SUBSCRIPTION_UNUSED_NOTE = {"id": "sub-gymly", "kind": "subscription", "title": "Still using Gymly?",
                             "body": "$15.99 a month, not used in 20 days.",
@@ -78,12 +81,12 @@ def test_pick_api_down(monkeypatch):
 
 def test_confirm_no_dismisses_pending(monkeypatch):
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     dismissed = {}
     monkeypatch.setattr(api_client, "dismiss_notification",
                          lambda note_id: dismissed.setdefault("id", note_id))
     reply = run(dispatch.build_reply("alice", "no", storage))
-    assert dismissed["id"] == "due-card1"
+    assert dismissed["id"] == "due-aurum"
     assert dispatch.get_pending(storage, "alice") is None
     assert "Okay" in reply
 
@@ -145,10 +148,10 @@ def test_notifications_proposes_one_concrete_action_for_due(monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "get_notifications", lambda: [DUE_NOTE])
     reply = run(dispatch.build_reply("alice", "anything due soon?", storage))
-    assert reply == ("Card1 is due soon. Pay $50 on Friday. "
-                      "Reply yes to schedule $50 to Card1 on Oct 29.")
+    assert reply == ("Aurum Gold is due Oct 30. Pay $640 on Oct 29, after payday? "
+                      "Reply yes to schedule $640 to Aurum Gold on Oct 29.")
     pending = dispatch.get_pending(storage, "alice")
-    assert pending["note_id"] == "due-card1"
+    assert pending["note"]["id"] == "due-aurum"
 
 
 def test_notifications_proposes_cancel_for_subscription(monkeypatch):
@@ -156,7 +159,7 @@ def test_notifications_proposes_cancel_for_subscription(monkeypatch):
     monkeypatch.setattr(api_client, "get_notifications", lambda: [SUBSCRIPTION_TRIAL_NOTE])
     reply = run(dispatch.build_reply("alice", "anything due soon?", storage))
     assert reply.endswith("Reply yes to cancel it.")
-    assert dispatch.get_pending(storage, "alice")["note_id"] == "sub-streambox"
+    assert dispatch.get_pending(storage, "alice")["note"]["id"] == "sub-streambox"
 
 
 def test_notification_punctuation_has_no_double_period(monkeypatch):
@@ -190,7 +193,7 @@ def test_confirm_yes_without_pending_gives_helpful_message():
 
 def test_pending_expires_after_ttl_never_calls_delegate():
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     stored = storage.get("pending:alice")
     stored["expires_at"] = time.time() - 1  # force expiry
     storage.set("pending:alice", stored)
@@ -203,7 +206,7 @@ def test_pending_expires_after_ttl_never_calls_delegate():
 
 def test_other_sender_cannot_approve_pending_action():
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
 
     delegate = FakeDelegate()
     reply = run(dispatch.build_reply("bob", "yes", storage, delegate=delegate))
@@ -217,18 +220,18 @@ def test_other_sender_cannot_approve_pending_action():
 
 def test_confirm_yes_with_asi_one_mention_prefix(monkeypatch):
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "approve_notification",
-                         lambda note_id: {"id": note_id, "message": "Scheduled $50 to Card1"})
+                         lambda note_id: {"id": note_id, "message": "Scheduled $640 to Aurum Gold on Oct 29"})
     mention = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq yes"
     reply = run(dispatch.build_reply("alice", mention, storage))
-    assert "Scheduled $50" in reply
+    assert "Scheduled $640" in reply
     assert dispatch.get_pending(storage, "alice") is None
 
 
 def test_confirm_no_with_asi_one_mention_prefix(monkeypatch):
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "dismiss_notification", lambda note_id: {"message": "Dismissed"})
     mention = "@agent1qde95qr0dzcnhhs8f65hkwujn9mh89jx0u7u7g6nv3tm2jxvjwhkunvessq no"
     reply = run(dispatch.build_reply("alice", mention, storage))
@@ -252,9 +255,10 @@ def test_delegation_happy_path_skips_direct_api(monkeypatch):
 
 
 def test_delegate_timeout_falls_back_to_direct_api(monkeypatch):
-    """Mirrors what the real SpecialistDelegate does on a 5s timeout: tries
-    the specialist, gets nothing back, falls back to the Flask API -- and
-    dispatch.py still produces a correct reply either way."""
+    """Mirrors what the real SpecialistDelegate does when a read specialist
+    doesn't answer in time: tries the specialist, gets nothing back, falls
+    back to the Flask API -- and dispatch.py still produces a correct reply
+    either way."""
     storage = FakeStorage()
     monkeypatch.setattr(api_client, "pick", lambda **kw: PICK_RESULT)
     delegate = TimeoutThenDirectDelegate()
@@ -265,17 +269,17 @@ def test_delegate_timeout_falls_back_to_direct_api(monkeypatch):
 
 def test_execute_action_routes_through_delegate_on_approve():
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
-    delegate = FakeDelegate(execute_action_result={"message": "Scheduled $50 to Card1"})
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+    delegate = FakeDelegate(execute_action_result={"message": "Scheduled $640 to Aurum Gold on Oct 29"})
     reply = run(dispatch.build_reply("alice", "yes", storage, delegate=delegate))
-    assert "Done. Scheduled $50 to Card1" in reply
-    assert ("execute_action", "alice", "approve", "due-card1") in delegate.calls
+    assert "Done. Scheduled $640 to Aurum Gold on Oct 29" in reply
+    assert ("execute_action", "alice", "approve", "due-aurum") in delegate.calls
     assert dispatch.get_pending(storage, "alice") is None
 
 
 def test_confirm_yes_chains_to_next_alert(monkeypatch):
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "approve_notification",
                          lambda note_id: {"id": note_id, "message": "Scheduled $640 to Aurum Gold on Oct 29"})
     monkeypatch.setattr(api_client, "get_notifications", lambda: [SUBSCRIPTION_TRIAL_NOTE])
@@ -284,14 +288,80 @@ def test_confirm_yes_chains_to_next_alert(monkeypatch):
                       "Next: Free trial converts tomorrow. StreamBox starts charging $15.99 tomorrow. "
                       "Reply yes to cancel it.")
     pending = dispatch.get_pending(storage, "alice")
-    assert pending["note_id"] == "sub-streambox"
+    assert pending["note"]["id"] == "sub-streambox"
 
 
 def test_confirm_yes_no_next_alert_when_queue_empty(monkeypatch):
     storage = FakeStorage()
-    dispatch.set_pending(storage, "alice", "approve", "due-card1", "Card1 is due soon")
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
     monkeypatch.setattr(api_client, "approve_notification",
-                         lambda note_id: {"id": note_id, "message": "Scheduled $50 to Card1"})
+                         lambda note_id: {"id": note_id, "message": "Scheduled $640 to Aurum Gold on Oct 29"})
     monkeypatch.setattr(api_client, "get_notifications", lambda: [])
     reply = run(dispatch.build_reply("alice", "yes", storage))
-    assert reply == "Done. Scheduled $50 to Card1."
+    assert reply == "Done. Scheduled $640 to Aurum Gold on Oct 29."
+
+
+# ---------- idempotency: never execute a write twice. Reproduces the live bug
+# exactly -- Payment Planner's approve succeeded, but its reply crossed the
+# mailbox relay late, SpecialistDelegate detected that and returned None
+# instead of retrying, and dispatch.py must still say "Done" with the right
+# numbers, reconstructed from the pending note it already had. ----------
+
+def test_confirm_yes_reconstructs_done_message_when_delegate_signals_already_done():
+    """delegate.execute_action returning None (no retry, no message) is
+    exactly what the real SpecialistDelegate does once it confirms via
+    GET /api/notifications that the write already happened -- dispatch.py
+    must still report success with the right numbers, not an error."""
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+    delegate = FakeDelegate(execute_action_result=None)
+    reply = run(dispatch.build_reply("alice", "yes", storage, delegate=delegate))
+    assert reply.startswith("Done. Scheduled $640 to Aurum Gold on Oct 29.")
+    assert dispatch.get_pending(storage, "alice") is None
+
+
+def test_confirm_yes_treats_not_found_error_as_already_done():
+    """If a retry does happen and the server says "not found" (confirmed
+    live: approving an already-approved id returns 404 {"error": "No
+    notification called due-aurum"}), that means it already happened a
+    moment earlier -- report success, don't show the user an error."""
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class NotFoundDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            self.calls.append(("execute_action", sender, action, note_id))
+            raise api_client.ApiError("I couldn't find that anymore -- it may already be done.",
+                                       status_code=404, not_found=True)
+
+    reply = run(dispatch.build_reply("alice", "yes", storage, delegate=NotFoundDelegate()))
+    assert reply.startswith("Done. Scheduled $640 to Aurum Gold on Oct 29.")
+    assert dispatch.get_pending(storage, "alice") is None
+
+
+def test_confirm_yes_still_surfaces_real_errors():
+    """A genuine failure (not a 404-because-already-done) is still shown as
+    an error, and the pending action is kept so the user can retry."""
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class BoomDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("Can't reach Pocket Pilot's server.")
+
+    reply = run(dispatch.build_reply("alice", "yes", storage, delegate=BoomDelegate()))
+    assert "Can't reach" in reply
+    assert dispatch.get_pending(storage, "alice") is not None
+
+
+def test_confirm_no_treats_not_found_error_as_already_handled():
+    storage = FakeStorage()
+    dispatch.set_pending(storage, "alice", "approve", DUE_NOTE)
+
+    class NotFoundDelegate(FakeDelegate):
+        async def execute_action(self, action_id, sender, action, note_id):
+            raise api_client.ApiError("gone", status_code=404, not_found=True)
+
+    reply = run(dispatch.build_reply("alice", "no", storage, delegate=NotFoundDelegate()))
+    assert "Okay" in reply
+    assert dispatch.get_pending(storage, "alice") is None

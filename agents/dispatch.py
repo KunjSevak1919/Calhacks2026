@@ -34,7 +34,14 @@ HELP_TEXT = (
 
 class DirectDelegate:
     """Calls the Flask API directly. The default delegate, and also what
-    SpecialistDelegate falls back to when a specialist doesn't answer."""
+    SpecialistDelegate falls back to when a specialist doesn't answer.
+
+    Reads (score_pick, due_soon, impact) take a request_id, fresh per call --
+    a retry is harmless, so no special care is needed. Writes (execute_action,
+    pay) take an action_id instead: a stable id for one logical user-approved
+    action, reused across any internal retry/fallback attempt, so logs from
+    both paths ("tried the specialist", "fell back to direct") read as one
+    story instead of two unrelated calls."""
 
     async def score_pick(self, request_id, merchant, amount, debt_guard=None):
         return api_client.pick(merchant=merchant, amount=amount, debt_guard=debt_guard)
@@ -42,12 +49,12 @@ class DirectDelegate:
     async def due_soon(self, request_id):
         return api_client.get_notifications()
 
-    async def execute_action(self, request_id, sender, action, note_id):
+    async def execute_action(self, action_id, sender, action, note_id):
         if action == "approve":
             return api_client.approve_notification(note_id)
         return api_client.dismiss_notification(note_id)
 
-    async def pay(self, request_id, merchant, amount, card):
+    async def pay(self, action_id, merchant, amount, card):
         return api_client.pay(merchant=merchant, amount=amount, card_id=card)
 
     async def impact(self, request_id):
@@ -75,9 +82,14 @@ def get_pending(storage, sender):
     return data
 
 
-def set_pending(storage, sender, action, note_id, summary):
+def set_pending(storage, sender, action, note):
+    """Stores the full note (not just its id) and a stable action_id, so
+    that if we ever have to confirm "did this already happen?" after a
+    specialist's reply arrives late, we can still reconstruct the exact
+    "Done. ..." message from the same data we used to propose it -- no
+    second write call required."""
     storage.set(_pending_key(sender), {
-        "action": action, "note_id": note_id, "summary": summary,
+        "action": action, "note": note, "action_id": str(uuid.uuid4()),
         "expires_at": time.time() + PENDING_TTL_SECONDS,
     })
 
@@ -131,6 +143,27 @@ def _propose_action(note):
     elif note["kind"] == "subscription":
         return "Reply yes to cancel it."
     return None
+
+
+def _action_done_message(note):
+    """The same "Done. ..." text a real approve/dismiss call would have
+    returned, reconstructed from the note's own data. Used when we can't
+    get that text from a fresh call -- either because a specialist's reply
+    arrived too late and we deliberately didn't retry (see SpecialistDelegate
+    in pocket_pilot_agent.py), or because a retry did happen and the server
+    said "not found" (it already happened moments earlier)."""
+    data = note.get("data") or {}
+    if note["kind"] == "due":
+        amount, name, when = data.get("suggested"), data.get("name"), data.get("pay_on")
+        if amount is not None and name and when:
+            return f"Scheduled ${amount:,.0f} to {name} on {_nice_date(when)}."
+    elif note["kind"] == "subscription":
+        name, amount = data.get("name"), data.get("amount")
+        if name and amount is not None:
+            return f"Canceled {name}, saving ${amount:.2f} a month."
+        if name:
+            return f"Canceled {name}."
+    return "Done."
 
 
 def _format_debt_guard_pick(result):
@@ -196,7 +229,7 @@ async def handle_notifications(storage, sender, delegate):
     reply = " ".join(_format_notification(n) for n in top)
     action = _propose_action(top[0])
     if action:
-        set_pending(storage, sender, "approve", top[0]["id"], top[0]["title"])
+        set_pending(storage, sender, "approve", top[0])
         reply += " " + action
     return reply
 
@@ -211,13 +244,21 @@ async def handle_confirm_yes(storage, sender, delegate):
     pending = get_pending(storage, sender)
     if not pending:
         return NOTHING_PENDING_MESSAGE
-    request_id = str(uuid.uuid4())
+    note = pending["note"]
+    action_id = pending["action_id"]
     try:
-        result = await delegate.execute_action(request_id, sender, "approve", pending["note_id"])
+        result = await delegate.execute_action(action_id, sender, "approve", note["id"])
     except api_client.ApiError as e:
-        return str(e)
+        if not e.not_found:
+            return str(e)
+        # The server says it's gone -- in this flow that only happens because
+        # it was already approved a moment earlier (e.g. a specialist's reply
+        # arrived after our timeout and we'd already treated this as done).
+        # That's a success, not an error: fall through and report it as one.
+        result = None
     clear_pending(storage, sender)
-    message = (result or {}).get("message", "Done.")
+    message = (result or {}).get("message") if result else None
+    message = message or _action_done_message(note)
     sep = "" if message.endswith((".", "!", "?")) else "."
     reply = f"Done. {message}{sep}"
 
@@ -230,7 +271,7 @@ async def handle_confirm_yes(storage, sender, delegate):
         reply += f" Next: {_format_notification(nxt)}"
         action = _propose_action(nxt)
         if action:
-            set_pending(storage, sender, "approve", nxt["id"], nxt["title"])
+            set_pending(storage, sender, "approve", nxt)
             reply += " " + action
     return reply
 
@@ -239,11 +280,14 @@ async def handle_confirm_no(storage, sender, delegate):
     pending = get_pending(storage, sender)
     if not pending:
         return "Okay."
-    request_id = str(uuid.uuid4())
+    note = pending["note"]
+    action_id = pending["action_id"]
     try:
-        await delegate.execute_action(request_id, sender, "dismiss", pending["note_id"])
+        await delegate.execute_action(action_id, sender, "dismiss", note["id"])
     except api_client.ApiError as e:
-        return str(e)
+        if not e.not_found:
+            return str(e)
+        # Already gone -- already dismissed/handled, which is fine.
     clear_pending(storage, sender)
     return "Okay, skipping that for now."
 
@@ -252,9 +296,9 @@ async def handle_pay(parsed, delegate):
     merchant, amount, card = parsed.get("merchant"), parsed.get("amount"), parsed.get("card")
     if amount is None:
         return "How much did you pay, and where?"
-    request_id = str(uuid.uuid4())
+    action_id = str(uuid.uuid4())
     try:
-        result = await delegate.pay(request_id, merchant, amount, card)
+        result = await delegate.pay(action_id, merchant, amount, card)
     except api_client.ApiError as e:
         return str(e)
     return result.get("message") or f"Logged ${amount:.2f} at {merchant or 'that purchase'}."

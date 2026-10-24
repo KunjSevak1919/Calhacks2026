@@ -15,11 +15,19 @@ TIMEOUT_SECONDS = 5
 
 
 class ApiError(Exception):
-    """Raised for any Flask API failure: network, timeout, or non-2xx status."""
+    """Raised for any Flask API failure: network, timeout, or non-2xx status.
 
-    def __init__(self, message, status_code=None):
+    not_found=True means the route exists but this specific id/resource
+    wasn't found (Flask returned a JSON {"error": ...} body) -- most often
+    because it was already approved/dismissed. That's different from a
+    route that doesn't exist on this server branch at all (Flask's default
+    HTML 404 page, no JSON body), which keeps not_found=False.
+    """
+
+    def __init__(self, message, status_code=None, not_found=False):
         super().__init__(message)
         self.status_code = status_code
+        self.not_found = not_found
 
 
 def _base_url():
@@ -38,6 +46,16 @@ def _request(method, path, **kwargs):
         raise ApiError(f"Pocket Pilot's server call failed: {exc}") from exc
 
     if resp.status_code == 404:
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and body.get("error"):
+            # Route exists; this specific id/resource wasn't found -- e.g.
+            # confirmed live: approving an already-approved notification
+            # returns {"error": "No notification called due-aurum"}, 404.
+            raise ApiError("I couldn't find that anymore -- it may already be done.",
+                            status_code=404, not_found=True)
         raise ApiError(f"{path} isn't available on this server yet.", status_code=404)
     if not resp.ok:
         detail = ""

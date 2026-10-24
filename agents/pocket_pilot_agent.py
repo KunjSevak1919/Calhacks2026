@@ -31,7 +31,14 @@ import api_client  # noqa: E402
 import dispatch  # noqa: E402
 import messages  # noqa: E402
 
-SPECIALIST_TIMEOUT_SECONDS = 5
+# Reads (score_pick, due_soon, impact) can afford to retry freely, so they
+# stay snappy. Writes (execute_action, pay) get longer because the Agentverse
+# mailbox relay can be slow, and a premature timeout there is what causes a
+# double execution -- the specialist already ran the write; its reply just
+# arrived late. See SpecialistDelegate.execute_action for the "did it already
+# happen?" check that replaces blindly retrying on timeout.
+READ_TIMEOUT_SECONDS = 5
+WRITE_TIMEOUT_SECONDS = 15
 
 AGENT_PORT = int(os.getenv("POCKET_PILOT_PORT", os.getenv("AGENT_PORT", "8001")))
 POCKET_PILOT_SEED = os.getenv("POCKET_PILOT_SEED", os.getenv("AGENT_SEED", "pocket-pilot-dev-seed"))
@@ -64,8 +71,17 @@ def _card_dict(card):
 class SpecialistDelegate(dispatch.DirectDelegate):
     """Tries the Card Scorer / Payment Planner agents first; falls back to
     calling the Flask API directly (inherited from DirectDelegate) if a
-    specialist doesn't answer within SPECIALIST_TIMEOUT_SECONDS. Every
-    method logs which path answered so the demo's log trail is legible."""
+    specialist doesn't answer in time. Every method logs which path
+    answered so the demo's log trail is legible.
+
+    execute_action (approve/dismiss) is the one write path that goes through
+    a specialist, so it's the one exposed to this failure mode: the
+    specialist's write genuinely succeeds, but its reply crosses the
+    Agentverse mailbox relay slowly and arrives after our timeout. Blindly
+    retrying there would execute the same approve/dismiss twice. Instead, on
+    timeout we check whether the note is still in the active list before
+    ever calling the API again -- if it's gone, something already resolved
+    it, so we report success without a second write."""
 
     def __init__(self, ctx: Context):
         self.ctx = ctx
@@ -76,7 +92,7 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         try:
             resp, _status = await self.ctx.send_and_receive(
                 CARD_SCORER_ADDRESS, req, response_type=messages.ScoreResponse,
-                timeout=SPECIALIST_TIMEOUT_SECONDS)
+                timeout=READ_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
@@ -93,7 +109,7 @@ class SpecialistDelegate(dispatch.DirectDelegate):
         try:
             resp, _status = await self.ctx.send_and_receive(
                 PAYMENT_PLANNER_ADDRESS, req, response_type=messages.DueSoonResponse,
-                timeout=SPECIALIST_TIMEOUT_SECONDS)
+                timeout=READ_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
@@ -104,43 +120,67 @@ class SpecialistDelegate(dispatch.DirectDelegate):
                                  "falling back to direct API")
         return await super().due_soon(request_id)
 
-    async def execute_action(self, request_id, sender, action, note_id):
-        req = messages.ExecuteActionRequest(request_id=request_id, sender=sender, action=action,
+    async def execute_action(self, action_id, sender, action, note_id):
+        req = messages.ExecuteActionRequest(request_id=action_id, sender=sender, action=action,
                                              note_id=note_id)
         try:
             resp, _status = await self.ctx.send_and_receive(
                 PAYMENT_PLANNER_ADDRESS, req, response_type=messages.ExecuteActionResponse,
-                timeout=SPECIALIST_TIMEOUT_SECONDS)
+                timeout=WRITE_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
-            self.ctx.logger.info(f"[{request_id}] Payment Planner executed '{action}' via agent message")
+            self.ctx.logger.info(f"[{action_id}] Payment Planner executed '{action}' via agent message")
             return {"message": resp.message}
-        self.ctx.logger.warning(f"[{request_id}] Payment Planner unreachable/timed out, "
-                                 "falling back to direct API")
-        return await super().execute_action(request_id, sender, action, note_id)
+        if resp is not None and not resp.ok:
+            # The specialist answered but the write itself failed server-side
+            # (e.g. already gone) -- nothing to retry, just no message to show.
+            self.ctx.logger.warning(f"[{action_id}] Payment Planner reported '{action}' on "
+                                     f"{note_id} failed: {resp.error}")
+            return None
 
-    async def pay(self, request_id, merchant, amount, card):
-        req = messages.PayRequest(request_id=request_id, merchant=merchant, amount=amount, card=card)
+        self.ctx.logger.warning(f"[{action_id}] Payment Planner unreachable/timed out for "
+                                 f"'{action}' on {note_id} -- checking whether it already "
+                                 "happened before retrying")
+        try:
+            still_active = any(n["id"] == note_id for n in api_client.get_notifications())
+        except api_client.ApiError:
+            still_active = True  # can't verify -- be conservative, don't assume success
+
+        if not still_active:
+            self.ctx.logger.info(f"[{action_id}] {note_id} is no longer active -- treating "
+                                  f"'{action}' as already done, NOT retrying the write")
+            return None
+
+        self.ctx.logger.warning(f"[{action_id}] {note_id} is still active -- calling the API directly")
+        return await super().execute_action(action_id, sender, action, note_id)
+
+    async def pay(self, action_id, merchant, amount, card):
+        req = messages.PayRequest(request_id=action_id, merchant=merchant, amount=amount, card=card)
         try:
             resp, _status = await self.ctx.send_and_receive(
                 PAYMENT_PLANNER_ADDRESS, req, response_type=messages.PayResponse,
-                timeout=SPECIALIST_TIMEOUT_SECONDS)
+                timeout=WRITE_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
-            self.ctx.logger.info(f"[{request_id}] Payment Planner logged payment via agent message")
+            self.ctx.logger.info(f"[{action_id}] Payment Planner logged payment via agent message")
             return {"message": resp.message}
-        self.ctx.logger.warning(f"[{request_id}] Payment Planner unreachable/timed out, "
+        # /api/pay doesn't exist on this server branch yet (confirmed in
+        # api_client.py), so a direct retry here is a guaranteed no-op 404,
+        # never a real second write -- plain fallback is safe for now. If
+        # server/ adds /api/pay, this needs the same already-happened check
+        # execute_action does, since it would gain the same double-write risk.
+        self.ctx.logger.warning(f"[{action_id}] Payment Planner unreachable/timed out, "
                                  "falling back to direct API")
-        return await super().pay(request_id, merchant, amount, card)
+        return await super().pay(action_id, merchant, amount, card)
 
     async def impact(self, request_id):
         req = messages.ImpactRequest(request_id=request_id)
         try:
             resp, _status = await self.ctx.send_and_receive(
                 PAYMENT_PLANNER_ADDRESS, req, response_type=messages.ImpactResponse,
-                timeout=SPECIALIST_TIMEOUT_SECONDS)
+                timeout=READ_TIMEOUT_SECONDS)
         except Exception:
             resp = None
         if resp is not None and resp.ok:
