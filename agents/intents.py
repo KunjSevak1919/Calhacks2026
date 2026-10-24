@@ -38,6 +38,8 @@ DEBT_GUARD_WORDS = ("debt guard",)
 CARRYING_BALANCE_WORDS = ("carrying a balance", "carry a balance", "i'm in debt", "revolving balance")
 PAID_OFF_WORDS = ("paid off", "no balance", "not carrying")
 COACH_HINT_WORDS = ("why", "how do", "how does", "what is", "what's", "explain", "credit score", "late fee")
+VFC_RULES_WORDS = ("visa rules", "vfc rules", "my rules", "flexible credential rules")
+VFC_AUTHORIZE_WORDS = ("how should i pay", "which way should i pay", "visa flexible", "vfc")
 
 
 def _extract_amount(text):
@@ -113,6 +115,17 @@ def parse_intent(text, has_pending=False):
     if any(w in low for w in NOTIF_WORDS):
         return {"intent": "notifications", "raw": t}
 
+    if any(w in low for w in VFC_RULES_WORDS):
+        return {"intent": "vfc_rules", "raw": t}
+
+    if any(w in low for w in VFC_AUTHORIZE_WORDS):
+        return {
+            "intent": "vfc_authorize",
+            "merchant": _extract_merchant(t),
+            "amount": _extract_amount(t),
+            "raw": t,
+        }
+
     m = STORE_KIND_RE.search(t)
     if m:
         return {"intent": "store_kind", "merchant": m.group(1).strip().rstrip(STRIP_CHARS), "raw": t}
@@ -151,7 +164,8 @@ def parse_intent_llm(text):
         "Classify this message from a user talking to their credit card assistant. "
         "Reply with ONLY strict JSON, no prose, matching this shape: "
         '{"intent": one of ["pick","debt_guard_on","debt_guard_off","notifications",'
-        '"confirm_yes","confirm_no","pay","impact","store_kind","coach","reset_demo","help","unknown"],'
+        '"confirm_yes","confirm_no","pay","impact","store_kind","vfc_authorize","vfc_rules",'
+        '"coach","reset_demo","help","unknown"],'
         '"merchant": string or null, "amount": number or null, "question": string or null}. '
         f"Message: {text!r}"
     )

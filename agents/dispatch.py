@@ -358,6 +358,31 @@ def handle_reset_demo():
     return "Demo reset."
 
 
+def handle_vfc_authorize(parsed):
+    """Visa Flexible Credential (simulated): read-only, no approval needed
+    since nothing moves money -- it's a what-if, like /api/pick. No
+    specialist owns this (same reasoning as coach/reset above), so it's a
+    direct Flask call, not routed through a delegate."""
+    merchant, amount = parsed.get("merchant"), parsed.get("amount")
+    if amount is None:
+        return "How much is the purchase, and where?"
+    try:
+        result = api_client.vfc_authorize(merchant=merchant, amount=amount)
+    except api_client.ApiError as e:
+        return str(e)
+    return result.get("reason") or "Not sure how to fund that purchase."
+
+
+def handle_vfc_rules():
+    try:
+        result = api_client.vfc_rules()
+    except api_client.ApiError as e:
+        return str(e)
+    lines = [r["then"] for r in result.get("rules", [])]
+    numbered = " ".join(f"{i + 1}) {line}." for i, line in enumerate(lines))
+    return f"Your Visa Flexible rules (simulated, not a real Visa API): {numbered}"
+
+
 async def build_reply(sender, text, storage, delegate=None):
     """Text + per-sender storage in, reply string out."""
     delegate = delegate or DirectDelegate()
@@ -393,4 +418,8 @@ async def build_reply(sender, text, storage, delegate=None):
         return handle_coach(parsed.get("question") or text)
     if intent == "reset_demo":
         return handle_reset_demo()
+    if intent == "vfc_authorize":
+        return handle_vfc_authorize(parsed)
+    if intent == "vfc_rules":
+        return handle_vfc_rules()
     return "Not sure what you mean. Say \"help\" to see what I can do."
