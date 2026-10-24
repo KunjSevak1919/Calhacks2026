@@ -10,6 +10,7 @@ import os
 SYSTEM = """You are Pocket Pilot, a friendly money coach for college students managing their credit cards.
 Rules:
 - Use plain words a 14-year-old understands. Short sentences. Under 110 words.
+- Plain text only: it shows in a phone chat bubble. No markdown, no bullet points, no headings, no bold.
 - Use ONLY the numbers in the user's data below. Never invent numbers, rates, fees or scores.
 - If the data doesn't answer the question, say so and say what to check (card terms, the issuer's app).
 - Never recommend opening a new card, taking a loan, or spending more to earn rewards.
@@ -38,6 +39,22 @@ FALLBACK = [
      "Paying only the minimum on Aurum Gold's $640 at 29.9% APR takes years and costs well over $100 in interest. "
      "Paying it in full by Oct 30 costs $0 in interest. Next step: approve the full payment after payday."),
 ]
+
+
+def tidy(text, stop_reason=None):
+    """Make Claude's answer fit a chat bubble: no markdown, never cut mid-sentence."""
+    lines = []
+    for line in text.strip().splitlines():
+        line = line.strip().lstrip("-*\u2022 ").replace("**", "").replace("__", "")
+        if line.startswith("#"):
+            line = line.lstrip("# ")
+        if line:
+            lines.append(line)
+    out = " ".join(lines)
+    if stop_reason == "max_tokens":
+        end = max(out.rfind(". "), out.rfind("? "), out.rfind("! "))
+        out = out[: end + 1] if end > 0 else out
+    return out.strip()
 
 
 def _client():
@@ -71,9 +88,9 @@ def ask(question, context, history=None):
     try:
         resp = client.messages.create(
             model=os.getenv("CLAUDE_MODEL_SMART", "claude-sonnet-5-5"),
-            max_tokens=400, system=SYSTEM, messages=messages)
+            max_tokens=700, system=SYSTEM, messages=messages)
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        return {"answer": text.strip(), "source": "claude"}
+        return {"answer": tidy(text, resp.stop_reason), "source": "claude"}
     except Exception as e:  # network, auth, rate limit
         return {"answer": _fallback(question), "source": f"offline ({e.__class__.__name__})"}
 

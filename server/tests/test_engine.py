@@ -123,3 +123,10 @@ def test_usage_tip():
     card = data.card_by_id("spin")
     tip = planner.usage_tip(card, {"balance": 1000, "limit": 2500, "statement_close": "2026-11-13"})
     assert tip["pay"] == 250.0
+
+
+def test_coach_tidy_removes_markdown_and_cut_off_sentence():
+    from pocketpilot.coach import tidy
+    raw = "Probably not.\n\n- Fee is **$95**.\n- You earned $41.\n\nClosing a card can"
+    assert tidy(raw, "max_tokens") == "Probably not. Fee is $95. You earned $41."
+    assert tidy("All good.", "end_turn") == "All good."
