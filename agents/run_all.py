@@ -1,13 +1,14 @@
-"""Start Pocket Pilot and its two specialists with one command.
+"""Start Pocket Pilot and its three specialists with one command.
 
 Each agent keeps running as its own process (its own asyncio loop, mailbox
 client, seed-derived identity) exactly as it would if you started it alone --
-this just saves you three terminals. Logs interleave in this one terminal,
+this just saves you four terminals. Logs interleave in this one terminal,
 each line already prefixed by its own agent name (uagents' own logger does
-that), e.g. "[pocket-pilot]:", "[card-scorer]:", "[payment-planner]:".
+that), e.g. "[pocket-pilot]:", "[card-scorer]:", "[payment-planner]:",
+"[merchant-resolver]:".
 
 Run: python run_all.py   (with server/app.py already running)
-Stop: Ctrl+C -- all three are terminated together.
+Stop: Ctrl+C -- all four are terminated together.
 """
 import os
 import subprocess
@@ -21,7 +22,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 import api_client  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS = ["card_scorer_agent.py", "payment_planner_agent.py", "pocket_pilot_agent.py"]
+SCRIPTS = ["merchant_resolver_agent.py", "card_scorer_agent.py", "payment_planner_agent.py",
+           "pocket_pilot_agent.py"]
 
 
 def _check_flask():
@@ -42,7 +44,7 @@ def main():
             print(f"Starting {script} ...")
             procs.append(subprocess.Popen([sys.executable, os.path.join(HERE, script)]))
             time.sleep(1)  # stagger startup so logs are easier to read
-        print("\nAll three agents starting. Press Ctrl+C to stop them.\n")
+        print("\nAll four agents starting. Press Ctrl+C to stop them.\n")
         for p in procs:
             p.wait()
     except KeyboardInterrupt:

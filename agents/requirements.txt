@@ -4,3 +4,6 @@ requests==2.32.3
 python-dotenv==1.0.1
 anthropic>=0.40.0
 pytest==8.3.3
+# Needed by merchant_resolver.py's read-only import of
+# server/pocketpilot/resolver.py, which depends on it directly.
+rapidfuzz==3.9.6
