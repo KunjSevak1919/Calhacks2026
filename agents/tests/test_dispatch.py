@@ -546,3 +546,35 @@ def test_last_pick_is_per_sender_in_same_session(monkeypatch):
     bob = dispatch.conversation_key("agent1bob", "session-1")
     dispatch.set_last_pick(storage, alice, "Whole Foods", 84.5)
     assert dispatch.get_last_pick(storage, bob) is None
+
+
+# ---------- "reset demo" only when DEMO_MODE=on ----------
+
+def _forbid_reset(monkeypatch):
+    def fail():
+        raise AssertionError("demo_reset must not be called")
+
+    monkeypatch.setattr(api_client, "demo_reset", fail)
+
+
+def test_reset_demo_refused_by_default(monkeypatch):
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    _forbid_reset(monkeypatch)
+    reply = run(dispatch.build_reply("alice", "reset demo", FakeStorage()))
+    assert reply == "Demo reset is turned off."
+
+
+def test_reset_demo_refused_when_off(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "off")
+    _forbid_reset(monkeypatch)
+    reply = run(dispatch.build_reply("alice", "reset demo", FakeStorage()))
+    assert reply == "Demo reset is turned off."
+
+
+def test_reset_demo_works_when_on(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "on")
+    called = []
+    monkeypatch.setattr(api_client, "demo_reset", lambda: called.append(1) or {})
+    reply = run(dispatch.build_reply("alice", "@agent1qxyz reset demo", FakeStorage()))
+    assert reply == "Demo reset."
+    assert called == [1]

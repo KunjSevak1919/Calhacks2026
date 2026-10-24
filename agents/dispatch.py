@@ -12,6 +12,7 @@ agents first and falls back to DirectDelegate's behavior on timeout -- but
 dispatch.py doesn't need to know or care which path produced the answer.
 """
 import logging
+import os
 import time
 import uuid
 from datetime import date as _date
@@ -365,7 +366,13 @@ def handle_coach(question):
     return result.get("answer", "I'm not sure, try asking Coach directly in the app.")
 
 
+def demo_mode_on():
+    return os.getenv("DEMO_MODE", "off").strip().lower() == "on"
+
+
 def handle_reset_demo():
+    if not demo_mode_on():
+        return "Demo reset is turned off."
     try:
         api_client.demo_reset()
     except api_client.ApiError as e:
