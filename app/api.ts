@@ -104,6 +104,50 @@ export interface CoachResponse {
   source: string;
 }
 
+// ── VFC (Virtual Funding Controller) ──────────────────────────────────────
+
+export interface VfcRule {
+  id: string;
+  when: string;
+  then: string;
+  why: string;
+}
+
+export interface VfcRulesResponse {
+  rules: VfcRule[];
+  settings: {
+    debit_buffer: number;
+    enabled: boolean;
+    installment_threshold: number;
+  };
+  simulated: boolean;
+}
+
+export interface VfcInstallmentItem {
+  amount: number;
+  date: string;
+}
+
+export interface VfcInstallments {
+  count: number;
+  each: number;
+  schedule: VfcInstallmentItem[];
+}
+
+export interface VfcAuthorizeResponse {
+  card_id: string | null;
+  card_name: string | null;
+  category: string;
+  funding: "credit" | "debit" | "installments";
+  mcc: string;
+  mcc_preserved: boolean;
+  merchant: string;
+  reason: string;
+  rule_id: string;
+  simulated: boolean;
+  installments?: VfcInstallments;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function get<T>(path: string): Promise<T> {
@@ -152,4 +196,9 @@ export const api = {
     post<{ debt_guard: boolean }>("/api/settings", { debt_guard }),
 
   payback: (cardId: string) => get<PaybackResponse>(`/api/payback/${cardId}`),
+
+  vfcRules: () => get<VfcRulesResponse>("/api/vfc/rules"),
+
+  vfcAuthorize: (merchant: string, mcc: number, amount: number) =>
+    post<VfcAuthorizeResponse>("/api/vfc/authorize", { merchant, mcc, amount }),
 };

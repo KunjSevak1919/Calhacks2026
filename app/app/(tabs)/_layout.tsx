@@ -60,6 +60,20 @@ export default function TabLayout() {
           tabBarActiveTintColor: colors.blue,
         }}
       />
+      <Tabs.Screen
+        name="visa"
+        options={{
+          title: "One Card",
+          tabBarIcon: ({ focused }) => (
+            <Ionicons
+              name={focused ? "flash" : "flash-outline"}
+              size={22}
+              color={focused ? colors.amber : colors.muted}
+            />
+          ),
+          tabBarActiveTintColor: colors.amber,
+        }}
+      />
     </Tabs>
   );
 }
