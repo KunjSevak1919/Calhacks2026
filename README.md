@@ -27,3 +27,12 @@ and canned Claude answers, so you can build the app right away.
 | POST | `/api/coach` | `{question}` -> Ask Coach answer from Claude |
 | GET/POST | `/api/settings` | Read or set `{debt_guard: true/false}` |
 | GET | `/api/payback/<card_id>` | Pay in full vs. minimum, in dollars and months |
+
+## Fetch.ai agent
+
+`agents/` has a uAgents agent that puts Pocket Pilot in chat: Agent Chat
+Protocol (so it's usable in ASI:One), Agentverse mailbox registration, and a
+couple of REST endpoints for the app to call directly. It does no money math
+itself -- every number it says comes from the Flask API above. See
+[`agents/README.md`](agents/README.md) for setup, Agentverse/ASI:One steps,
+and a demo script.
