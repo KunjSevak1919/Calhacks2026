@@ -119,6 +119,15 @@ def payback(card_id):
     return _request("GET", f"/api/payback/{card_id}")
 
 
+def vfc_rules():
+    return _request("GET", "/api/vfc/rules")
+
+
+def vfc_authorize(merchant=None, amount=0.0, mcc=None):
+    body = {"amount": amount, "merchant": merchant, "mcc": mcc}
+    return _request("POST", "/api/vfc/authorize", json={k: v for k, v in body.items() if v is not None})
+
+
 # --- Not on this server branch yet. Kept here so the agent starts working the
 # moment server/ adds them, with no agent-side changes needed. Each call will
 # raise ApiError(status_code=404) today; callers already handle that. ---

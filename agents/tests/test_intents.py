@@ -79,6 +79,25 @@ def test_unknown_intent():
     assert parsed["intent"] == "unknown"
 
 
+def test_vfc_authorize_intent_how_should_i_pay():
+    parsed = intents.parse_intent("How should I pay for a $600 laptop at Best Buy?")
+    assert parsed["intent"] == "vfc_authorize"
+    assert parsed["merchant"] == "Best Buy"
+    assert parsed["amount"] == 600.0
+
+
+def test_vfc_authorize_intent_pay_with_visa_flexible():
+    parsed = intents.parse_intent("pay with visa flexible at Whole Foods $84.50")
+    assert parsed["intent"] == "vfc_authorize"
+    assert parsed["merchant"] == "Whole Foods"
+    assert parsed["amount"] == 84.50
+
+
+def test_vfc_rules_intent():
+    parsed = intents.parse_intent("show my Visa rules")
+    assert parsed["intent"] == "vfc_rules"
+
+
 def test_store_kind_intent():
     parsed = intents.parse_intent("What kind of store is Costco?")
     assert parsed["intent"] == "store_kind"
@@ -139,6 +158,13 @@ def test_mentioned_store_kind_still_parses_merchant():
     parsed = intents.parse_intent(f"{MENTION} what kind of store is Costco?")
     assert parsed["intent"] == "store_kind"
     assert parsed["merchant"] == "Costco"
+
+
+def test_mentioned_vfc_authorize_still_parses_merchant_and_amount():
+    parsed = intents.parse_intent(f"{MENTION} pay with visa flexible at Whole Foods $84.50")
+    assert parsed["intent"] == "vfc_authorize"
+    assert parsed["merchant"] == "Whole Foods"
+    assert parsed["amount"] == 84.50
 
 
 def test_trailing_punctuation_on_yes_still_matches():

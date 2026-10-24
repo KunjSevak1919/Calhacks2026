@@ -416,3 +416,64 @@ def test_store_kind_resolver_down_still_answers_via_fallback(monkeypatch):
     reply = run(dispatch.build_reply("alice", "what kind of store is Costco", storage, delegate=delegate))
     assert reply == "Costco: Warehouse club, not grocery."
     assert delegate.specialist_attempts == 1
+
+
+# ---------- Visa Flexible Credential (simulated) -- direct Flask calls, no
+# specialist owns this, same pattern as coach/reset_demo above. Read-only:
+# no pending/confirmation needed since nothing moves money. ----------
+
+VFC_DEBIT_RESULT = {
+    "funding": "debit", "card_id": None, "card_name": None, "merchant": "Whole Foods Market",
+    "mcc": "5411", "category": "grocery", "mcc_preserved": True, "simulated": True,
+    "rule_id": "debit-if-carrying",
+    "reason": ("Pay with debit: you're carrying a balance, so credit would start charging "
+               "interest today -- debit costs $0 in interest. Checking has $380.00, minus a "
+               "$100.00 safety buffer, leaves $280.00 -- enough for $84.50."),
+}
+
+VFC_RULES_RESULT = {
+    "simulated": True,
+    "settings": {"debit_buffer": 100.0, "installment_threshold": 200.0, "enabled": True},
+    "rules": [
+        {"id": "credit-if-clear", "then": "Pay with CREDIT on your best rewards card for this store's category",
+         "when": "...", "why": "..."},
+        {"id": "debit-if-carrying", "then": "Pay with DEBIT, straight from checking", "when": "...", "why": "..."},
+        {"id": "installments-if-large", "then": "Split into 4 equal INSTALLMENTS, 14 days apart",
+         "when": "...", "why": "..."},
+        {"id": "credit-lowest-apr-otherwise", "then": "Pay with CREDIT on your lowest-cost card for this balance",
+         "when": "...", "why": "..."},
+    ],
+}
+
+
+def test_vfc_authorize_surfaces_reason_directly(monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(api_client, "vfc_authorize", lambda **kw: VFC_DEBIT_RESULT)
+    reply = run(dispatch.build_reply("alice", "pay with visa flexible at Whole Foods $84.50", storage))
+    assert reply == VFC_DEBIT_RESULT["reason"]
+
+
+def test_vfc_authorize_missing_amount_asks_for_it():
+    storage = FakeStorage()
+    reply = run(dispatch.build_reply("alice", "how should I pay at Best Buy", storage))
+    assert reply == "How much is the purchase, and where?"
+
+
+def test_vfc_authorize_api_down_is_graceful(monkeypatch):
+    storage = FakeStorage()
+
+    def boom(**kw):
+        raise api_client.ApiError("Can't reach Pocket Pilot's server at http://x.")
+
+    monkeypatch.setattr(api_client, "vfc_authorize", boom)
+    reply = run(dispatch.build_reply("alice", "how should I pay for a $600 laptop at Best Buy?", storage))
+    assert "Can't reach" in reply
+
+
+def test_vfc_rules_summarized(monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(api_client, "vfc_rules", lambda: VFC_RULES_RESULT)
+    reply = run(dispatch.build_reply("alice", "show my Visa rules", storage))
+    assert reply.startswith("Your Visa Flexible rules (simulated, not a real Visa API):")
+    assert "1) Pay with CREDIT on your best rewards card for this store's category." in reply
+    assert "3) Split into 4 equal INSTALLMENTS, 14 days apart." in reply
