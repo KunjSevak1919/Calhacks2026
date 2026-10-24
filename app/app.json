@@ -5,8 +5,8 @@
     "version": "1.0.0",
     "scheme": "pocketpilot",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#0B0E14",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F6F7FB",
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
@@ -15,7 +15,7 @@
     "android": {
       "package": "com.calhacks.pocketpilot",
       "adaptiveIcon": {
-        "backgroundColor": "#0B0E14",
+        "backgroundColor": "#F6F7FB",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png"
       }
@@ -26,7 +26,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": true

@@ -2,12 +2,45 @@ import { useEffect } from "react";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
+import * as SplashScreen from "expo-splash-screen";
+import { useFonts } from "expo-font";
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from "@expo-google-fonts/manrope";
+import {
+  IBMPlexMono_500Medium,
+  IBMPlexMono_600SemiBold,
+  IBMPlexMono_700Bold,
+} from "@expo-google-fonts/ibm-plex-mono";
 import { api } from "../api";
 import { requestPermission, registerCategories } from "../notificationService";
 // Importing this module installs the foreground handler as a side-effect.
 import "../notificationService";
 
+// Keep the native splash visible until fonts are ready.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    IBMPlexMono_500Medium,
+    IBMPlexMono_600SemiBold,
+    IBMPlexMono_700Bold,
+  });
+
+  // Hide splash as soon as fonts are ready.
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded]);
+
   useEffect(() => {
     // 1. Ask for permission (no-op on web; shows system dialog on first launch).
     requestPermission();
@@ -36,8 +69,6 @@ export default function RootLayout() {
             } else if (action === "dismiss") {
               await api.dismiss(noteId);
             }
-            // For every interaction — including a plain tap on the banner —
-            // open the app on the Alerts tab so the list refreshes.
           } catch {
             // Best-effort; the Alerts list will resync on focus.
           }
@@ -51,9 +82,11 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
+  if (!fontsLoaded) return null;
+
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }} />
     </>
   );

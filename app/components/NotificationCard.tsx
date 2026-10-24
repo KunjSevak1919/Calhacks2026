@@ -1,8 +1,9 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import PressScale from "./PressScale";
 import { Notification, NotificationKind } from "../api";
-import { colors, spacing, radius, font } from "../theme";
+import { colors, spacing, radius, font, type, shadow, hit } from "../theme";
 
 interface Props {
   note: Notification;
@@ -26,15 +27,21 @@ function severityFor(kind: NotificationKind): "warn" | "info" | "ok" {
 }
 
 const ICON: Record<"warn" | "info" | "ok", keyof typeof Ionicons.glyphMap> = {
-  warn: "warning-outline",
-  info: "information-circle-outline",
-  ok: "checkmark-circle-outline",
+  warn: "warning",
+  info: "information-circle",
+  ok: "checkmark-circle",
 };
 
 const ACCENT: Record<"warn" | "info" | "ok", string> = {
-  warn: colors.amber,
-  info: colors.blue,
-  ok: colors.mint,
+  warn: colors.warn,
+  info: colors.coach,
+  ok: colors.good,
+};
+
+const FILL: Record<"warn" | "info" | "ok", string> = {
+  warn: colors.warnFill,
+  info: colors.coachFill,
+  ok: colors.goodFill,
 };
 
 export default function NotificationCard({
@@ -45,42 +52,54 @@ export default function NotificationCard({
 }: Props) {
   const severity = severityFor(note.kind);
   const accent = ACCENT[severity];
+  const fill = FILL[severity];
   const icon = ICON[severity];
 
-  // actions[0] = primary action label (approve)
-  // actions[1] = secondary label (dismiss / keep / later)
-  // If only one action it's an "acknowledge" — we still call approve on it.
   const primaryLabel = note.actions[0] ?? "Got it";
   const secondaryLabel = note.actions[1];
   const hasTwoActions = note.actions.length >= 2;
 
   return (
     <View style={[styles.card, { borderLeftColor: accent }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <Ionicons name={icon} size={18} color={accent} style={styles.icon} />
-        <Text style={styles.title}>{note.title}</Text>
+        <View style={[styles.iconWrap, { backgroundColor: fill }]}>
+          <Ionicons name={icon} size={16} color={accent} />
+        </View>
+        <Text style={styles.title} numberOfLines={2}>{note.title}</Text>
       </View>
+
+      {/* Body */}
       <Text style={styles.body}>{note.body}</Text>
 
+      {/* Actions */}
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: accent + "1A", borderColor: accent + "44" }, styles.primaryBtn]}
-          onPress={onApprove}
-          disabled={loading}
-        >
-          <Text style={[styles.btnText, { color: accent }]}>{primaryLabel}</Text>
-        </TouchableOpacity>
+        {loading ? (
+          <ActivityIndicator color={accent} style={{ marginVertical: 4 }} />
+        ) : (
+          <>
+            <PressScale
+              onPress={onApprove}
+              disabled={loading}
+              accessibilityLabel={primaryLabel}
+              style={[styles.btn, { backgroundColor: fill, borderColor: accent + "44" }]}
+            >
+              <Text style={[styles.btnText, { color: accent }]}>{primaryLabel}</Text>
+            </PressScale>
 
-        {hasTwoActions && (
-          <TouchableOpacity
-            style={[styles.btn, styles.dismissBtn]}
-            onPress={onDismiss}
-            disabled={loading}
-          >
-            <Text style={[styles.btnText, { color: colors.muted }]}>
-              {secondaryLabel}
-            </Text>
-          </TouchableOpacity>
+            {hasTwoActions && (
+              <PressScale
+                onPress={onDismiss}
+                disabled={loading}
+                accessibilityLabel={secondaryLabel}
+                style={[styles.btn, styles.dismissBtn]}
+              >
+                <Text style={[styles.btnText, { color: colors.muted }]}>
+                  {secondaryLabel}
+                </Text>
+              </PressScale>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -89,38 +108,60 @@ export default function NotificationCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
     borderLeftWidth: 3,
+    ...shadow.soft,
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: spacing.xs,
+    alignItems: "flex-start",
+    gap: spacing.md,
+    marginBottom: spacing.sm,
   },
-  icon: { marginRight: spacing.xs },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
   title: {
     color: colors.text,
-    fontSize: font.md,
-    fontWeight: "700",
+    fontSize: font.body,
+    fontFamily: type.uiSemi,
     flex: 1,
+    lineHeight: 22,
   },
   body: {
     color: colors.muted,
-    fontSize: font.sm,
-    lineHeight: 19,
-    marginBottom: spacing.md,
+    fontSize: font.label,
+    fontFamily: type.ui,
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+    paddingLeft: 32 + spacing.md,
   },
-  actions: { flexDirection: "row", gap: spacing.sm },
+  actions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
   btn: {
     flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
+    minHeight: hit.min,
+    borderRadius: radius.md,
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
   },
-  primaryBtn: { borderWidth: 1 },
-  dismissBtn: { backgroundColor: colors.border },
-  btnText: { fontSize: font.sm, fontWeight: "600" },
+  dismissBtn: {
+    backgroundColor: colors.surfaceSubtle,
+    borderColor: "transparent",
+  },
+  btnText: {
+    fontSize: font.body,
+    fontFamily: type.uiSemi,
+  },
 });
