@@ -7,11 +7,13 @@ from flask_cors import CORS
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+from pocketpilot.routes_vfc import init_routes as init_vfc_routes  # noqa: E402
 from pocketpilot.service import PocketPilot  # noqa: E402  (needs env loaded first)
 
 app = Flask(__name__)
 CORS(app)
 pilot = PocketPilot()
+init_vfc_routes(app, lambda: pilot)
 
 
 def body():
