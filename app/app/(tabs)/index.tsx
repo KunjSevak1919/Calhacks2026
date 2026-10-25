@@ -18,6 +18,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api, type CardInfo, type PaybackResponse, type WalletResponse } from "../../api";
 import { useTheme } from "../../ThemeContext";
+import { supabase } from "../../lib/supabase";
 import { font, type, spacing, radius, shadow } from "../../theme";
 import { useLayout } from "../../hooks/useLayout";
 import CardStack from "../../components/CardStack";
@@ -129,6 +130,18 @@ export default function WalletScreen() {
   const [guardLoading, setGuardLoading] = useState(false);
   const [dataBadge, setDataBadge] = useState<string | null>(null);
   const [nextDue, setNextDue] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setSignedIn(!!data.session);
+    }).catch(() => {});
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(!!session);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -172,6 +185,16 @@ export default function WalletScreen() {
     try {
       await api.setSettings(next);
       setWallet((w) => w ? { ...w, settings: { debt_guard: next } } : w);
+      if (supabase) {
+        supabase.auth.getUser().then(async ({ data }) => {
+          const userId = data.user?.id;
+          if (!userId) return;
+          await supabase!.from("user_settings").upsert(
+            { user_id: userId, debt_guard: next, updated_at: new Date().toISOString() },
+            { onConflict: "user_id" }
+          );
+        }).catch(() => {});
+      }
     } catch {
       // revert
     } finally {
@@ -251,6 +274,15 @@ export default function WalletScreen() {
           <Text style={[styles.chipText, { color: colors.muted }]}>Next due · {nextDue}</Text>
         </View>
       )}
+      <View style={[styles.chip, {
+        backgroundColor: signedIn ? colors.goodFill : colors.surfaceSubtle,
+        borderColor: signedIn ? colors.accent + "44" : colors.border,
+      }]}>
+        <View style={[styles.dot, { backgroundColor: signedIn ? colors.accent : colors.muted }]} />
+        <Text style={[styles.chipText, { color: signedIn ? colors.accent : colors.muted }]}>
+          {signedIn ? "Synced" : "Offline"}
+        </Text>
+      </View>
     </View>
   );
 
