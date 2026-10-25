@@ -30,6 +30,7 @@ import { font, type, spacing, radius, shadow } from "../../theme";
 import DebtGuardSwitch from "../../components/DebtGuardSwitch";
 import Skeleton from "../../components/Skeleton";
 import { useLayout } from "../../hooks/useLayout";
+import { supabase } from "../../lib/supabase";
 
 // ── Scenario definitions ──────────────────────────────────────────────────────
 
@@ -243,6 +244,16 @@ export default function SimulationScreen() {
     setDebtGuard(val);
     try {
       await api.setSettings(val);
+      if (supabase) {
+        supabase.auth.getUser().then(async ({ data }) => {
+          const userId = data.user?.id;
+          if (!userId) return;
+          await supabase!.from("user_settings").upsert(
+            { user_id: userId, debt_guard: val, updated_at: new Date().toISOString() },
+            { onConflict: "user_id" }
+          );
+        }).catch(() => {});
+      }
     } catch {
       setDebtGuard(!val);
     } finally {

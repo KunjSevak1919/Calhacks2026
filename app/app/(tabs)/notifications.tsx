@@ -25,6 +25,7 @@ import Animated, {
 import { api, type Notification } from "../../api";
 import { useTheme } from "../../ThemeContext";
 import { useLayout } from "../../hooks/useLayout";
+import { supabase } from "../../lib/supabase";
 import { font, type, spacing, radius, shadow, hit } from "../../theme";
 import AlertCard from "../../components/AlertCard";
 import Toast, { type ToastHandle } from "../../components/ui/Toast";
@@ -180,24 +181,41 @@ export default function NotificationsScreen() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
+  const logApproval = useCallback((note: Notification, action: "approved" | "dismissed") => {
+    if (!supabase) return;
+    supabase.auth.getUser().then(async ({ data }) => {
+      const userId = data.user?.id;
+      if (!userId) return;
+      await supabase!.from("approvals").insert({
+        user_id: userId,
+        notification_id: note.id,
+        kind: note.kind,
+        action,
+        message: note.body,
+      });
+    }).catch(() => {});
+  }, []);
+
   const handlePrimary = useCallback(async (note: Notification) => {
     try {
       await api.approve(note.id);
       removeNote(note.id);
       toastRef.current?.show(`${note.actions[0] ?? "Done"}!`, "good");
+      logApproval(note, "approved");
     } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Action failed");
     }
-  }, [removeNote]);
+  }, [removeNote, logApproval]);
 
   const handleSecondary = useCallback(async (note: Notification) => {
     try {
       await api.dismiss(note.id);
       removeNote(note.id);
+      logApproval(note, "dismissed");
     } catch {
       //
     }
-  }, [removeNote]);
+  }, [removeNote, logApproval]);
 
   // ── Demo notifications ────────────────────────────────────────────────────
 

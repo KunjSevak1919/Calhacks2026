@@ -14,6 +14,7 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import { api } from "../api";
+import { supabase } from "../lib/supabase";
 import { requestPermission, registerCategories } from "../notificationService";
 // Importing this module installs the foreground handler as a side-effect (native only).
 import "../notificationService";
@@ -56,6 +57,35 @@ export default function RootLayout() {
     if (!fontsReady || Platform.OS === "web") return;
     SplashScreen.hideAsync().catch(() => {});
   }, [fontsReady]);
+
+  // Sign in to Supabase silently on app start, then seed the saved debt_guard.
+  // Never blocks rendering — all errors are swallowed after a single console.log.
+  useEffect(() => {
+    if (!supabase) return;
+    const password = process.env.EXPO_PUBLIC_DEMO_PASSWORD;
+    if (!password) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: "demo@pocketpilot.app",
+          password,
+        });
+        if (error) { console.log("Supabase sign-in:", error.message); return; }
+        const userId = data.user?.id;
+        if (!userId) return;
+        const { data: settings } = await supabase
+          .from("user_settings")
+          .select("debt_guard")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (settings?.debt_guard != null) {
+          api.setSettings(settings.debt_guard as boolean).catch(() => {});
+        }
+      } catch (e) {
+        console.log("Supabase init:", e);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     // expo-notifications is not available on web — registering listeners there
