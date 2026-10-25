@@ -18,7 +18,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api, type CardInfo, type PaybackResponse, type WalletResponse } from "../../api";
 import { useTheme } from "../../ThemeContext";
-import { supabase } from "../../lib/supabase";
+import { supabase, getProfile, type ProfileData } from "../../lib/supabase";
 import { font, type, spacing, radius, shadow } from "../../theme";
 import { useLayout } from "../../hooks/useLayout";
 import CardStack from "../../components/CardStack";
@@ -114,6 +114,91 @@ function WalletSkeleton() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatPayday(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    const parts = iso.split("-");
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[parseInt(parts[1], 10) - 1]} ${parseInt(parts[2], 10)}`;
+  } catch {
+    return iso;
+  }
+}
+
+// ── Profile Modal ─────────────────────────────────────────────────────────────
+
+function ProfileModal({
+  visible,
+  profile,
+  onClose,
+}: {
+  visible: boolean;
+  profile: ProfileData | null;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={[styles.modalSafe, { backgroundColor: colors.background }]}>
+        <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>Profile</Text>
+          <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
+            <Ionicons name="close" size={22} color={colors.muted} />
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          {profile ? (
+            <>
+              <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {profile.full_name ? (
+                  <View style={styles.profileItem}>
+                    <Text style={[styles.profileItemLabel, { color: colors.muted }]}>Name</Text>
+                    <Text style={[styles.profileItemValue, { color: colors.text }]}>{profile.full_name}</Text>
+                  </View>
+                ) : null}
+                {profile.school ? (
+                  <View style={[styles.profileItem, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.md }]}>
+                    <Text style={[styles.profileItemLabel, { color: colors.muted }]}>School</Text>
+                    <Text style={[styles.profileItemValue, { color: colors.text }]}>{profile.school}</Text>
+                  </View>
+                ) : null}
+                {profile.payday ? (
+                  <View style={[styles.profileItem, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.md }]}>
+                    <Text style={[styles.profileItemLabel, { color: colors.muted }]}>Payday</Text>
+                    <Text style={[styles.profileItemValue, { color: colors.text }]}>
+                      {formatPayday(profile.payday)}{profile.pay_frequency ? `, ${profile.pay_frequency}` : ""}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.profileSyncRow}>
+                <Ionicons name="checkmark-circle" size={13} color={colors.good} />
+                <Text style={[styles.profileSyncText, { color: colors.muted }]}>Synced with Supabase</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={[styles.profileOffline, { color: colors.muted }]}>Profile not available offline</Text>
+          )}
+          <Pressable
+            onPress={onClose}
+            accessibilityLabel="Close profile"
+            style={[styles.profileCloseBtn, { backgroundColor: colors.primary }]}
+          >
+            <Text style={[styles.profileCloseTxt, { color: colors.onPrimary }]}>Close</Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function WalletScreen() {
@@ -131,6 +216,8 @@ export default function WalletScreen() {
   const [dataBadge, setDataBadge] = useState<string | null>(null);
   const [nextDue, setNextDue] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [profileVisible, setProfileVisible] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -142,6 +229,11 @@ export default function WalletScreen() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    getProfile().then(setProfile).catch(() => {});
+  }, [signedIn]);
 
   const load = useCallback(async () => {
     try {
@@ -227,18 +319,24 @@ export default function WalletScreen() {
 
   // ── Reusable content blocks ──────────────────────────────────────────────────
 
+  const avatarLetter = profile?.full_name?.[0]?.toUpperCase() ?? "K";
+  const firstName = profile?.full_name?.split(" ")[0] ?? null;
+  const greetText = firstName ? `Hi, ${firstName}` : greeting();
+
   const headerEl = (
     <View style={styles.header}>
-      <LinearGradient
-        colors={["#0E7A58", "#07402F"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.avatar}
-      >
-        <Text style={styles.avatarInitial}>K</Text>
-      </LinearGradient>
+      <Pressable onPress={() => setProfileVisible(true)} accessibilityLabel="View profile">
+        <LinearGradient
+          colors={["#0E7A58", "#07402F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.avatar}
+        >
+          <Text style={styles.avatarInitial}>{avatarLetter}</Text>
+        </LinearGradient>
+      </Pressable>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.hi, { color: colors.muted }]}>{greeting()}</Text>
+        <Text style={[styles.hi, { color: colors.muted }]}>{greetText}</Text>
       </View>
       <Pressable
         onPress={load}
@@ -406,6 +504,7 @@ export default function WalletScreen() {
       </ScrollView>
 
       <PaybackModal card={paybackCard} onClose={() => setPaybackCard(null)} />
+      <ProfileModal visible={profileVisible} profile={profile} onClose={() => setProfileVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -500,4 +599,15 @@ const styles = StyleSheet.create({
   balanceAmt: { fontSize: font.hero, fontFamily: type.monoBold, marginTop: 2, fontVariant: ["tabular-nums"] },
   balanceMeta: { fontSize: font.label, fontFamily: type.uiMedium, marginTop: spacing.xs },
   errText: { fontSize: font.body, fontFamily: type.uiMedium },
+
+  // Profile modal
+  profileCard: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.lg, gap: spacing.md, ...shadow.soft },
+  profileItem: { gap: 2 },
+  profileItemLabel: { fontSize: font.label, fontFamily: type.uiMedium },
+  profileItemValue: { fontSize: font.body, fontFamily: type.uiBold },
+  profileSyncRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  profileSyncText: { fontSize: font.label, fontFamily: type.uiMedium },
+  profileOffline: { fontSize: font.body, fontFamily: type.uiMedium },
+  profileCloseBtn: { borderRadius: radius.md, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  profileCloseTxt: { fontSize: font.body, fontFamily: type.uiBold },
 });

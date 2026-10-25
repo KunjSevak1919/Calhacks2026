@@ -15,3 +15,27 @@ export const supabase =
         },
       })
     : null;
+
+export interface ProfileData {
+  full_name: string | null;
+  school: string | null;
+  payday: string | null;
+  pay_frequency: string | null;
+}
+
+export async function getProfile(): Promise<ProfileData | null> {
+  if (!supabase) return null;
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return null;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("full_name, school, payday, pay_frequency")
+      .eq("id", userData.user.id)
+      .maybeSingle();
+    if (error) return null;
+    return (data as ProfileData | null);
+  } catch {
+    return null;
+  }
+}
