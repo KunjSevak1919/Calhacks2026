@@ -41,89 +41,89 @@ export type ThemeColors = {
 };
 
 export type CardArt = {
-  gradient: [string, string];
-  accent: string;
+  gradient: [string, string, string, string];
+  textColor: string;
 };
 
 // ── Light palette ─────────────────────────────────────────────────────────────
 
 export const lightColors: ThemeColors = {
-  background: "#F4F6F4",
+  background: "#F2F4F1",
   surface: "#FFFFFF",
   elevated: "#FFFFFF",
-  surfaceSubtle: "#EEF1F6",
-  text: "#101613",
-  textSecondary: "#3F4A45",
-  muted: "#5D6B64",
-  primary: "#111827",
+  surfaceSubtle: "#E9EFE9",
+  text: "#0D1F15",
+  textSecondary: "#43564B",
+  muted: "#43564B",
+  primary: "#0A6B4E",
   onPrimary: "#FFFFFF",
-  accent: "#065F46",
+  accent: "#0A6B4E",
   onAccent: "#FFFFFF",
-  good: "#047857",
-  goodFill: "#E7F7EF",
-  warn: "#B45309",
-  warnFill: "#FEF3E2",
+  good: "#0A6B4E",
+  goodFill: "#E2F1EA",
+  warn: "#8A5A00",
+  warnFill: "#FBF0D7",
   coach: "#4F46E5",
   coachFill: "#EEF0FF",
-  error: "#B42318",
-  errorFill: "#FEE2E2",
-  border: "#DDE5DF",
-  track: "#E3EAE6",
-  skeletonBase: "#E6ECE8",
-  skeletonHighlight: "#F5F8F6",
+  error: "#B33727",
+  errorFill: "#FBEAE7",
+  border: "rgba(13,31,21,0.09)",
+  track: "#E9EFE9",
+  skeletonBase: "#E9EFE9",
+  skeletonHighlight: "#F2F4F1",
   cardText: "#FFFFFF",
   cardTextSecondary: "rgba(255,255,255,0.82)",
-  cardSheen: "rgba(255,255,255,0.16)",
-  cardOverlay: "rgba(0,0,0,0.18)",
-  tabBarBackground: "#FFFFFF",
-  tabBarBorder: "#DDE5DF",
-  tabInactive: "#5D6B64",
+  cardSheen: "rgba(255,255,255,0.22)",
+  cardOverlay: "rgba(0,0,0,0.15)",
+  tabBarBackground: "rgba(255,255,255,0.86)",
+  tabBarBorder: "rgba(13,31,21,0.09)",
+  tabInactive: "#43564B",
 };
 
 // ── Dark palette ──────────────────────────────────────────────────────────────
 
 export const darkColors: ThemeColors = {
-  background: "#0A100E",
-  surface: "#131D1A",
-  elevated: "#1A2622",
-  surfaceSubtle: "#1A2622",
-  text: "#F2F5F3",
-  textSecondary: "#C2CCC8",
-  muted: "#93A19C",
-  primary: "#F2F5F3",
-  onPrimary: "#101613",
-  accent: "#34D399",
-  onAccent: "#06281F",
-  good: "#4ADE80",
-  goodFill: "#052E16",
-  warn: "#FBBF24",
-  warnFill: "#451A03",
+  background: "#0A0F0C",
+  surface: "#141C17",
+  elevated: "#1D2821",
+  surfaceSubtle: "#1E2A23",
+  text: "#EDF4EF",
+  textSecondary: "#A9BCB0",
+  muted: "#A9BCB0",
+  primary: "#3ECF9B",
+  onPrimary: "#052418",
+  accent: "#3ECF9B",
+  onAccent: "#052418",
+  good: "#3ECF9B",
+  goodFill: "#143327",
+  warn: "#F0B45C",
+  warnFill: "#2D2110",
   coach: "#818CF8",
   coachFill: "#1E1B4B",
-  error: "#FCA5A5",
-  errorFill: "#450A0A",
-  border: "#22302B",
-  track: "#22302B",
-  skeletonBase: "#1E2B26",
+  error: "#FF8D7E",
+  errorFill: "#301711",
+  border: "rgba(237,244,239,0.11)",
+  track: "#1E2A23",
+  skeletonBase: "#1E2A23",
   skeletonHighlight: "#2A3A34",
   cardText: "#FFFFFF",
   cardTextSecondary: "rgba(255,255,255,0.82)",
-  cardSheen: "rgba(255,255,255,0.16)",
-  cardOverlay: "rgba(0,0,0,0.18)",
-  tabBarBackground: "#131D1A",
-  tabBarBorder: "#22302B",
-  tabInactive: "#93A19C",
+  cardSheen: "rgba(255,255,255,0.18)",
+  cardOverlay: "rgba(0,0,0,0.25)",
+  tabBarBackground: "rgba(16,22,18,0.88)",
+  tabBarBorder: "rgba(237,244,239,0.11)",
+  tabInactive: "#A9BCB0",
 };
 
 // ── Card art (same in both themes) ────────────────────────────────────────────
 
 export const cardArt: Record<string, CardArt> = {
-  aurum: { gradient: ["#6B4A08", "#9C7A1A"], accent: "#E7C55A" },
-  steady: { gradient: ["#0F2A4A", "#1E4E79"], accent: "#7FB0E0" },
-  zero: { gradient: ["#1F2937", "#374151"], accent: "#9CA3AF" },
-  spin: { gradient: ["#7C2D12", "#9A3412"], accent: "#FB923C" },
-  voyager: { gradient: ["#0F3D3A", "#14665E"], accent: "#5EEAD4" },
-  flexible: { gradient: ["#123B3A", "#1D5C57"], accent: "#5EEAD4" },
+  aurum:   { gradient: ["#F0CD7E", "#D9A94F", "#BD8527", "#E5C169"], textColor: "#38260A" },
+  steady:  { gradient: ["#24467E", "#16294E", "#0B1830", "#16294E"], textColor: "#E9EFFA" },
+  zero:    { gradient: ["#43484F", "#26292E", "#131518", "#26292E"], textColor: "#ECEEF1" },
+  spin:    { gradient: ["#FFA05C", "#F26F2E", "#D34E12", "#F26F2E"], textColor: "#FFF5EC" },
+  voyager: { gradient: ["#17685D", "#0C453D", "#052924", "#0C453D"], textColor: "#E2F3EE" },
+  one:     { gradient: ["#2A3B32", "#131A16", "#1D2F27", "#131A16"], textColor: "#E7F2EC" },
 };
 
 // ── Spacing / radius / font / type / shadow / hit (CLAUDE.md tokens) ─────────
@@ -139,9 +139,9 @@ export const spacing = {
 
 export const radius = {
   sm: 8,
-  md: 14,
-  lg: 14,
-  xl: 20,
+  md: 16,
+  lg: 22,
+  xl: 24,
   full: 999,
 } as const;
 
@@ -165,31 +165,31 @@ export const type = {
   uiMedium: "Manrope_500Medium",
   uiSemi: "Manrope_600SemiBold",
   uiBold: "Manrope_700Bold",
-  mono: "IBMPlexMono_500Medium",
-  monoSemi: "IBMPlexMono_600SemiBold",
-  monoBold: "IBMPlexMono_700Bold",
+  mono: "Manrope_600SemiBold",
+  monoSemi: "Manrope_700Bold",
+  monoBold: "Manrope_800ExtraBold",
 } as const;
 
 export const shadow = {
   soft: {
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 3,
+    shadowColor: "#0A140E",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 30,
+    elevation: 4,
   },
   stack: {
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 6,
+    shadowColor: "#0A140E",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 30,
+    elevation: 8,
   },
 } as const;
 
 export const hit = { min: 44 } as const;
 
-// ── Backward-compat flat `colors` export (screens updated incrementally) ──────
+// ── Backward-compat flat `colors` export ──────────────────────────────────────
 
-/** @deprecated Use useTheme().colors instead once a screen is redesigned. */
+/** @deprecated Use useTheme().colors instead. */
 export const colors = lightColors;

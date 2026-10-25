@@ -1,18 +1,26 @@
-import { Pressable } from "react-native";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useTheme, type ThemeMode } from "../../ThemeContext";
-import { font, type } from "../../theme";
+import { useTheme } from "../../ThemeContext";
+import { font, type, shadow } from "../../theme";
+import { api } from "../../api";
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
 
-function tabIcon(
-  focused: boolean,
-  name: IoniconsName,
-  outlineName: IoniconsName,
-  activeColor: string,
-  inactiveColor: string
-) {
+function TabIcon({
+  focused,
+  name,
+  outlineName,
+  activeColor,
+  inactiveColor,
+}: {
+  focused: boolean;
+  name: IoniconsName;
+  outlineName: IoniconsName;
+  activeColor: string;
+  inactiveColor: string;
+}) {
   return (
     <Ionicons
       name={focused ? name : outlineName}
@@ -22,102 +30,177 @@ function tabIcon(
   );
 }
 
-const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
-  system: "light",
-  light: "dark",
-  dark: "system",
-};
+function AlertsTabIcon({
+  focused,
+  activeColor,
+  inactiveColor,
+  badge,
+  badgeColor,
+}: {
+  focused: boolean;
+  activeColor: string;
+  inactiveColor: string;
+  badge: number;
+  badgeColor: string;
+}) {
+  return (
+    <View>
+      <Ionicons
+        name={focused ? "notifications" : "notifications-outline"}
+        size={22}
+        color={focused ? activeColor : inactiveColor}
+      />
+      {badge > 0 && (
+        <View style={[styles.badge, { backgroundColor: badgeColor }]}>
+          <Text style={styles.badgeText}>{badge > 9 ? "9+" : badge}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
-const THEME_ICON: Record<ThemeMode, IoniconsName> = {
-  system: "phone-portrait-outline",
-  light: "sunny-outline",
-  dark: "moon-outline",
-};
+// The pill tab bar is ~406px wide (430 – 12 margin on each side).
+// On desktop, keep it centered instead of letting it stretch edge-to-edge.
+const PILL_WIDTH = 406;
 
 export default function TabLayout() {
-  const { colors, themeMode, setTheme } = useTheme();
+  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const [notifCount, setNotifCount] = useState(0);
+
+  useEffect(() => {
+    api.notifications()
+      .then((list) => setNotifCount(list.length))
+      .catch(() => {});
+  }, []);
+
+  const isDesktop = width >= 900;
+  const hMargin = isDesktop ? Math.max(12, (width - PILL_WIDTH) / 2) : 12;
+
+  const tabBarStyle = {
+    position: "absolute" as const,
+    bottom: 12,
+    left: hMargin,
+    right: hMargin,
+    height: 68,
+    borderRadius: 28,
+    backgroundColor: colors.tabBarBackground,
+    borderTopWidth: 1,
+    borderTopColor: colors.tabBarBorder,
+    borderWidth: 1,
+    borderColor: colors.tabBarBorder,
+    ...shadow.stack,
+  };
 
   return (
     <Tabs
       screenOptions={{
-        headerShown: true,
-        tabBarStyle: {
-          backgroundColor: colors.tabBarBackground,
-          borderTopColor: colors.tabBarBorder,
-          borderTopWidth: 1,
-          height: 72,
-          paddingBottom: 12,
-          paddingTop: 6,
-        },
-        tabBarActiveTintColor: colors.text,
+        headerShown: false,
+        tabBarStyle,
+        tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.tabInactive,
         tabBarLabelStyle: {
-          fontSize: font.label,
-          fontFamily: type.uiSemi,
+          fontSize: 10.5,
+          fontFamily: type.uiBold,
           marginTop: 2,
         },
-        headerStyle: { backgroundColor: colors.tabBarBackground },
-        headerShadowVisible: false,
-        headerTintColor: colors.text,
-        headerTitleStyle: { fontFamily: type.uiBold, fontSize: font.title },
-        headerRight: () => (
-          <Pressable
-            onPress={() => setTheme(THEME_CYCLE[themeMode])}
-            hitSlop={12}
-            style={{ marginRight: 16 }}
-            accessibilityLabel={`Switch theme (current: ${themeMode})`}
-          >
-            <Ionicons
-              name={THEME_ICON[themeMode]}
-              size={22}
-              color={colors.muted}
-            />
-          </Pressable>
-        ),
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Wallet",
-          tabBarIcon: ({ focused }) =>
-            tabIcon(focused, "wallet", "wallet-outline", colors.text, colors.tabInactive),
+          tabBarIcon: ({ focused }) => (
+            <TabIcon
+              focused={focused}
+              name="wallet"
+              outlineName="wallet-outline"
+              activeColor={colors.accent}
+              inactiveColor={colors.tabInactive}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="pick"
         options={{
-          title: "Pick Card",
-          tabBarIcon: ({ focused }) =>
-            tabIcon(focused, "card", "card-outline", colors.text, colors.tabInactive),
-        }}
-      />
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          title: "Alerts",
-          tabBarIcon: ({ focused }) =>
-            tabIcon(focused, "notifications", "notifications-outline", colors.text, colors.tabInactive),
-        }}
-      />
-      <Tabs.Screen
-        name="coach"
-        options={{
-          title: "Coach",
-          tabBarActiveTintColor: colors.coach,
-          tabBarIcon: ({ focused }) =>
-            tabIcon(focused, "chatbubble-ellipses", "chatbubble-ellipses-outline", colors.coach, colors.tabInactive),
+          title: "Pay",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon
+              focused={focused}
+              name="flash"
+              outlineName="flash-outline"
+              activeColor={colors.accent}
+              inactiveColor={colors.tabInactive}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="visa"
         options={{
           title: "One Card",
-          tabBarActiveTintColor: colors.warn,
-          tabBarIcon: ({ focused }) =>
-            tabIcon(focused, "flash", "flash-outline", colors.warn, colors.tabInactive),
+          tabBarIcon: ({ focused }) => (
+            <TabIcon
+              focused={focused}
+              name="card"
+              outlineName="card-outline"
+              activeColor={colors.accent}
+              inactiveColor={colors.tabInactive}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Alerts",
+          tabBarIcon: ({ focused }) => (
+            <AlertsTabIcon
+              focused={focused}
+              activeColor={colors.accent}
+              inactiveColor={colors.tabInactive}
+              badge={notifCount}
+              badgeColor={colors.error}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="coach"
+        options={{
+          title: "Ask",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon
+              focused={focused}
+              name="chatbubble-ellipses"
+              outlineName="chatbubble-ellipses-outline"
+              activeColor={colors.accent}
+              inactiveColor={colors.tabInactive}
+            />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -8,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: font.xs,
+    fontFamily: type.uiBold,
+    lineHeight: 17,
+  },
+});

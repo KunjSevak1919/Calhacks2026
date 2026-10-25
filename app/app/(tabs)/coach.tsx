@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   FadeInUp,
@@ -22,6 +22,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api, type PaybackResponse } from "../../api";
 import { useTheme } from "../../ThemeContext";
+import { useLayout } from "../../hooks/useLayout";
 import { font, type, spacing, radius, shadow, hit } from "../../theme";
 import StoreChip from "../../components/StoreChip";
 import PaybackComparison from "../../components/PaybackComparison";
@@ -50,6 +51,10 @@ const SUGGESTIONS = [
   "Secured vs regular card?",
   "Is my annual fee worth it?",
 ];
+
+// Read from _layout.tsx: tabBarStyle height + bottom margin
+const TAB_BAR_HEIGHT = 68;
+const TAB_BAR_BOTTOM = 12;
 
 let msgId = 0;
 const nextId = () => String(++msgId);
@@ -128,8 +133,8 @@ function MessageBubble({ item }: { item: Message }) {
       style={[styles.bubbleWrap, isUser ? styles.bubbleWrapUser : styles.bubbleWrapAssistant]}
     >
       {isUser ? (
-        <View style={[styles.userBubble, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.userText, { color: colors.onPrimary }]}>{item.content}</Text>
+        <View style={[styles.userBubble, { backgroundColor: colors.accent }]}>
+          <Text style={[styles.userText, { color: colors.onAccent }]}>{item.content}</Text>
         </View>
       ) : (
         <View style={[styles.assistantBubble, { backgroundColor: colors.surface }]}>
@@ -176,6 +181,9 @@ function ErrorBanner({ error, onRetry }: { error: SendError; onRetry: () => void
 
 export default function CoachScreen() {
   const { colors } = useTheme();
+  const { isDesktop } = useLayout();
+  const insets = useSafeAreaInsets();
+  const inputBarPaddingBottom = spacing.md + TAB_BAR_HEIGHT + TAB_BAR_BOTTOM + insets.bottom;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -256,7 +264,20 @@ export default function CoachScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={["top"]}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView
+        style={[{ flex: 1 }, isDesktop && { maxWidth: 760, alignSelf: "center", width: "100%" }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={insets.top}
+      >
+
+        {/* Header: "Ask Coach" + "Claude-powered" chip */}
+        <View style={[styles.coachHeader, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.coachTitle, { color: colors.text }]}>Ask Pocket Pilot</Text>
+          <View style={[styles.claudeChip, { backgroundColor: colors.coachFill, borderColor: colors.coach + "44" }]}>
+            <Ionicons name="sparkles" size={12} color={colors.coach} />
+            <Text style={[styles.claudeChipText, { color: colors.coach }]}>Claude-powered</Text>
+          </View>
+        </View>
 
         {/* Empty state — shown before first message */}
         {!hasMessages ? (
@@ -268,7 +289,7 @@ export default function CoachScreen() {
                 <View style={[styles.emptyAvatar, { backgroundColor: colors.coachFill }]}>
                   <Ionicons name="chatbubble-ellipses" size={30} color={colors.coach} />
                 </View>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>I'm your credit coach</Text>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>I'm Pocket Pilot, your credit guide</Text>
                 <Text style={[styles.emptySub, { color: colors.muted }]}>
                   Ask me anything about your cards, interest, or how to optimise your spending.
                 </Text>
@@ -314,12 +335,12 @@ export default function CoachScreen() {
         )}
 
         {/* Input bar */}
-        <View style={[styles.inputRow, { borderTopColor: colors.border, backgroundColor: colors.surface }]}>
+        <View style={[styles.inputRow, { borderTopColor: colors.border, backgroundColor: colors.surface, paddingBottom: inputBarPaddingBottom }]}>
           <TextInput
             style={[styles.input, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
             value={input}
             onChangeText={setInput}
-            placeholder="Ask a question…"
+            placeholder="Ask Pocket Pilot anything…"
             placeholderTextColor={colors.muted}
             multiline
             returnKeyType="send"
@@ -346,6 +367,28 @@ export default function CoachScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+
+  // Coach header
+  coachHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  coachTitle: { fontSize: font.screen, fontFamily: type.uiBold, letterSpacing: -0.4, flex: 1 },
+  claudeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  claudeChipText: { fontSize: font.label, fontFamily: type.uiBold },
 
   // Empty state
   emptyWrap: {
@@ -378,7 +421,7 @@ const styles = StyleSheet.create({
   messageList: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.xl,
     gap: spacing.sm,
   },
 

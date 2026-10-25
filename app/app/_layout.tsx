@@ -1,21 +1,18 @@
 import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
-import { useFonts } from "expo-font";
+import { useTheme } from "../ThemeContext";
 import {
+  useFonts,
   Manrope_400Regular,
   Manrope_500Medium,
   Manrope_600SemiBold,
   Manrope_700Bold,
+  Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
-import {
-  IBMPlexMono_500Medium,
-  IBMPlexMono_600SemiBold,
-  IBMPlexMono_700Bold,
-} from "@expo-google-fonts/ibm-plex-mono";
 import { api } from "../api";
 import { requestPermission, registerCategories } from "../notificationService";
 // Importing this module installs the foreground handler as a side-effect (native only).
@@ -33,9 +30,7 @@ export default function RootLayout() {
     Manrope_500Medium,
     Manrope_600SemiBold,
     Manrope_700Bold,
-    IBMPlexMono_500Medium,
-    IBMPlexMono_600SemiBold,
-    IBMPlexMono_700Bold,
+    Manrope_800ExtraBold,
   });
 
   // On web, render immediately — the browser handles font loading via CSS and
@@ -105,8 +100,20 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
+      <AppShell />
+    </ThemeProvider>
+  );
+}
+
+// Inner shell — inside ThemeProvider so it can read the theme background color.
+// Covers the full window in the theme background so no white edges appear on
+// desktop web when the app content doesn't fill the entire viewport.
+function AppShell() {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }} />
-    </ThemeProvider>
+    </View>
   );
 }

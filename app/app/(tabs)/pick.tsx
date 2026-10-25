@@ -24,6 +24,7 @@ import Animated, {
 import { api, type PickResponse, type RankedCard } from "../../api";
 import { useTheme } from "../../ThemeContext";
 import { cardArt, font, type, spacing, radius, shadow, hit } from "../../theme";
+import { useLayout } from "../../hooks/useLayout";
 import RankedCardRow from "../../components/RankedCardRow";
 import StoreChip from "../../components/StoreChip";
 import Skeleton from "../../components/Skeleton";
@@ -57,12 +58,13 @@ function BestHero({ result, debtGuard }: { result: PickResponse; debtGuard: bool
   }));
 
   const art = cardArt[result.best.card_id];
-  const gradient: [string, string] = art ? art.gradient : ["#111827", "#374151"];
+  const gradient: [string, string, string, string] = art ? art.gradient : ["#111827", "#1F2937", "#374151", "#1F2937"];
 
   return (
     <Animated.View style={[styles.heroOuter, anim]}>
       <LinearGradient
         colors={gradient}
+        locations={[0, 0.38, 0.72, 1.0]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.hero}
@@ -139,6 +141,7 @@ function HeroSkeleton() {
 export default function PickScreen() {
   const { colors } = useTheme();
   const reduceMotion = useReducedMotion();
+  const { isDesktop } = useLayout();
 
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
@@ -183,189 +186,200 @@ export default function PickScreen() {
     [amount, submit]
   );
 
+  // ── Reusable blocks ───────────────────────────────────────────────────────────
+
+  const formEl = (
+    <>
+      {/* Screen title */}
+      <View style={styles.pageHeader}>
+        <Text style={[styles.pageTitle, { color: colors.text }]}>Pay</Text>
+        <Text style={[styles.pageSub, { color: colors.muted }]}>Find the right card for any purchase</Text>
+      </View>
+
+      {/* Debt Guard status chip */}
+      <View
+        style={[
+          styles.guardChip,
+          {
+            backgroundColor: debtGuard ? colors.goodFill : colors.surface,
+            borderColor: debtGuard ? colors.good + "55" : colors.border,
+          },
+        ]}
+      >
+        <Ionicons
+          name={debtGuard ? "shield-checkmark" : "shield-outline"}
+          size={14}
+          color={debtGuard ? colors.good : colors.muted}
+        />
+        <Text style={[styles.guardChipText, { color: debtGuard ? colors.good : colors.muted }]}>
+          Debt Guard {debtGuard ? "On · interest-first" : "Off · rewards-first"}
+        </Text>
+      </View>
+
+      {/* Form card */}
+      <View style={[styles.formCard, { backgroundColor: colors.surface }]}>
+        <Text style={[styles.fieldLabel, { color: colors.muted }]}>Quick Pick</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickRow}
+        >
+          {QUICK_PICKS.map((q) => (
+            <StoreChip
+              key={q.label}
+              label={q.label}
+              selected={merchant === q.label}
+              onPress={() => handleQuickPick(q.label)}
+            />
+          ))}
+        </ScrollView>
+        <Text style={[styles.fieldLabel, { color: colors.muted, marginTop: spacing.lg }]}>
+          Store / Merchant
+        </Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
+          value={merchant}
+          onChangeText={setMerchant}
+          placeholder="e.g. Whole Foods, Amazon…"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="words"
+          returnKeyType="next"
+        />
+        <Text style={[styles.fieldLabel, { color: colors.muted }]}>Amount ($)</Text>
+        <TextInput
+          style={[styles.input, styles.amountInput, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0.00"
+          placeholderTextColor={colors.muted}
+          keyboardType="decimal-pad"
+          returnKeyType="done"
+          onSubmitEditing={() => submit()}
+        />
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.fieldLabel, { color: colors.muted, marginBottom: 0 }]}>
+              Foreign transaction
+            </Text>
+            <Text style={[styles.switchSub, { color: colors.muted }]}>Shopping outside the US?</Text>
+          </View>
+          <Switch
+            value={foreign}
+            onValueChange={setForeign}
+            trackColor={{ false: colors.border, true: colors.good }}
+            thumbColor={colors.surface}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        <Pressable
+          onPress={() => submit()}
+          disabled={!canSubmit || loading}
+          accessibilityLabel="Find best card"
+          style={({ pressed }) => [
+            styles.submitBtn,
+            {
+              backgroundColor: canSubmit && !loading ? colors.primary : colors.surfaceSubtle,
+              opacity: pressed ? 0.88 : 1,
+            },
+          ]}
+        >
+          <View style={styles.submitInner}>
+            {loading ? (
+              <Skeleton height={16} width={16} borderRadius={8} />
+            ) : (
+              <Ionicons name="flash" size={17} color={canSubmit ? colors.onPrimary : colors.muted} />
+            )}
+            <Text style={[styles.submitText, { color: canSubmit && !loading ? colors.onPrimary : colors.muted }]}>
+              {loading ? "Finding…" : "Find Best Card"}
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+
+      {/* Error */}
+      {error && (
+        <View style={[styles.errorBox, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
+          <Ionicons name="alert-circle" size={16} color={colors.warn} />
+          <Text style={[styles.errorText, { color: colors.warn }]}>{error}</Text>
+        </View>
+      )}
+
+      {/* Loading skeleton */}
+      {loading && <HeroSkeleton />}
+
+      {/* Result detail: hero + store + reason */}
+      {result && !loading && (
+        <View style={{ gap: spacing.md }}>
+          {result.uncertain && (
+            <View style={[styles.uncertainBanner, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
+              <Ionicons name="help-circle" size={16} color={colors.warn} />
+              <Text style={[styles.uncertainBannerText, { color: colors.warn }]}>
+                Not sure what this store is — showing safest card.
+              </Text>
+            </View>
+          )}
+          <BestHero result={result} debtGuard={debtGuard} />
+          <View style={[styles.storeRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="storefront-outline" size={14} color={colors.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.storeLabel, { color: colors.text }]}>{result.store.label}</Text>
+              {result.store.note ? (
+                <Text style={[styles.storeNote, { color: colors.muted }]}>{result.store.note}</Text>
+              ) : null}
+            </View>
+            <View style={[styles.confBadge, { backgroundColor: colors.surfaceSubtle }]}>
+              <Text style={[styles.confText, { color: colors.muted }]}>
+                {(result.store.confidence * 100).toFixed(0)}% conf.
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.reasonBox, { backgroundColor: colors.surface, borderLeftColor: colors.accent }]}>
+            <Text style={[styles.reasonText, { color: colors.text }]}>{result.reason}</Text>
+          </View>
+        </View>
+      )}
+    </>
+  );
+
+  const rankedEl = result && !loading ? (
+    <View style={{ gap: spacing.md }}>
+      <Text style={[styles.rankedTitle, { color: colors.muted }]}>All Cards Ranked</Text>
+      {result.ranked.map((c: RankedCard, i) => (
+        <Animated.View
+          key={c.card_id}
+          entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260).springify()}
+        >
+          <RankedCardRow
+            rank={i + 1}
+            card={c}
+            isWinner={i === 0}
+            dimmed={i > 0}
+          />
+        </Animated.View>
+      ))}
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={["top"]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={isDesktop ? styles.scrollDesktop : styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Debt Guard status chip */}
-          <View
-            style={[
-              styles.guardChip,
-              {
-                backgroundColor: debtGuard ? colors.goodFill : colors.surface,
-                borderColor: debtGuard ? colors.good + "55" : colors.border,
-              },
-            ]}
-          >
-            <Ionicons
-              name={debtGuard ? "shield-checkmark" : "shield-outline"}
-              size={14}
-              color={debtGuard ? colors.good : colors.muted}
-            />
-            <Text style={[styles.guardChipText, { color: debtGuard ? colors.good : colors.muted }]}>
-              Debt Guard {debtGuard ? "On · interest-first" : "Off · rewards-first"}
-            </Text>
-          </View>
-
-          {/* Form card */}
-          <View style={[styles.formCard, { backgroundColor: colors.surface }]}>
-            {/* Quick picks */}
-            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Quick Pick</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.quickRow}
-            >
-              {QUICK_PICKS.map((q) => (
-                <StoreChip
-                  key={q.label}
-                  label={q.label}
-                  selected={merchant === q.label}
-                  onPress={() => handleQuickPick(q.label)}
-                />
-              ))}
-            </ScrollView>
-
-            {/* Store input */}
-            <Text style={[styles.fieldLabel, { color: colors.muted, marginTop: spacing.lg }]}>
-              Store / Merchant
-            </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
-              value={merchant}
-              onChangeText={setMerchant}
-              placeholder="e.g. Whole Foods, Amazon…"
-              placeholderTextColor={colors.muted}
-              autoCapitalize="words"
-              returnKeyType="next"
-            />
-
-            {/* Amount */}
-            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Amount ($)</Text>
-            <TextInput
-              style={[styles.input, styles.amountInput, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
-              value={amount}
-              onChangeText={setAmount}
-              placeholder="0.00"
-              placeholderTextColor={colors.muted}
-              keyboardType="decimal-pad"
-              returnKeyType="done"
-              onSubmitEditing={() => submit()}
-            />
-
-            {/* Foreign toggle */}
-            <View style={styles.switchRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.fieldLabel, { color: colors.muted, marginBottom: 0 }]}>
-                  Foreign transaction
-                </Text>
-                <Text style={[styles.switchSub, { color: colors.muted }]}>Shopping outside the US?</Text>
+          {isDesktop ? (
+            <View style={styles.desktopWrap}>
+              <View style={styles.desktopColumns}>
+                <View style={styles.desktopLeft}>{formEl}</View>
+                {rankedEl && <View style={styles.desktopRight}>{rankedEl}</View>}
               </View>
-              <Switch
-                value={foreign}
-                onValueChange={setForeign}
-                trackColor={{ false: colors.border, true: colors.good }}
-                thumbColor={colors.surface}
-                ios_backgroundColor={colors.border}
-              />
             </View>
-
-            {/* Submit */}
-            <Pressable
-              onPress={() => submit()}
-              disabled={!canSubmit || loading}
-              accessibilityLabel="Find best card"
-              style={({ pressed }) => [
-                styles.submitBtn,
-                {
-                  backgroundColor: canSubmit && !loading ? colors.primary : colors.surfaceSubtle,
-                  opacity: pressed ? 0.88 : 1,
-                },
-              ]}
-            >
-              <View style={styles.submitInner}>
-                {loading ? (
-                  <Skeleton height={16} width={16} borderRadius={8} />
-                ) : (
-                  <Ionicons name="flash" size={17} color={canSubmit ? colors.onPrimary : colors.muted} />
-                )}
-                <Text
-                  style={[styles.submitText, { color: canSubmit && !loading ? colors.onPrimary : colors.muted }]}
-                >
-                  {loading ? "Finding…" : "Find Best Card"}
-                </Text>
-              </View>
-            </Pressable>
-          </View>
-
-          {/* Error */}
-          {error && (
-            <View style={[styles.errorBox, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
-              <Ionicons name="alert-circle" size={16} color={colors.warn} />
-              <Text style={[styles.errorText, { color: colors.warn }]}>{error}</Text>
-            </View>
-          )}
-
-          {/* Loading skeleton */}
-          {loading && <HeroSkeleton />}
-
-          {/* Result */}
-          {result && !loading && (
-            <View style={{ gap: spacing.md }}>
-              {/* Uncertain banner */}
-              {result.uncertain && (
-                <View style={[styles.uncertainBanner, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
-                  <Ionicons name="help-circle" size={16} color={colors.warn} />
-                  <Text style={[styles.uncertainBannerText, { color: colors.warn }]}>
-                    Not sure what this store is — showing safest card.
-                  </Text>
-                </View>
-              )}
-
-              {/* Best card hero */}
-              <BestHero result={result} debtGuard={debtGuard} />
-
-              {/* Store info row */}
-              <View style={[styles.storeRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="storefront-outline" size={14} color={colors.muted} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.storeLabel, { color: colors.text }]}>{result.store.label}</Text>
-                  {result.store.note ? (
-                    <Text style={[styles.storeNote, { color: colors.muted }]}>{result.store.note}</Text>
-                  ) : null}
-                </View>
-                <View style={[styles.confBadge, { backgroundColor: colors.surfaceSubtle }]}>
-                  <Text style={[styles.confText, { color: colors.muted }]}>
-                    {(result.store.confidence * 100).toFixed(0)}% conf.
-                  </Text>
-                </View>
-              </View>
-
-              {/* Reason */}
-              <View style={[styles.reasonBox, { backgroundColor: colors.surface, borderLeftColor: colors.accent }]}>
-                <Text style={[styles.reasonText, { color: colors.text }]}>{result.reason}</Text>
-              </View>
-
-              {/* Ranked list */}
-              <Text style={[styles.rankedTitle, { color: colors.muted }]}>All Cards Ranked</Text>
-              {result.ranked.map((c: RankedCard, i) => (
-                <Animated.View
-                  key={c.card_id}
-                  entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260).springify()}
-                >
-                  <RankedCardRow
-                    rank={i + 1}
-                    card={c}
-                    isWinner={i === 0}
-                    dimmed={i > 0}
-                  />
-                </Animated.View>
-              ))}
-            </View>
+          ) : (
+            <>
+              {formEl}
+              {rankedEl}
+            </>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -375,7 +389,17 @@ export default function PickScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 96 },
+  scrollDesktop: { paddingBottom: 96, alignItems: "center" },
+  desktopWrap: { maxWidth: 1120, width: "100%", paddingHorizontal: 40, paddingTop: spacing.lg },
+  desktopColumns: { flexDirection: "row", gap: 32, alignItems: "flex-start" },
+  desktopLeft: { flex: 1, gap: spacing.lg },
+  desktopRight: { flex: 1, gap: spacing.md },
+
+  // Page header
+  pageHeader: { paddingTop: spacing.sm },
+  pageTitle: { fontSize: font.screen, fontFamily: type.uiBold, letterSpacing: -0.4 },
+  pageSub: { fontSize: font.body, fontFamily: type.ui, marginTop: 2 },
 
   // Guard chip
   guardChip: {

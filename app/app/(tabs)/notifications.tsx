@@ -24,6 +24,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api, type Notification } from "../../api";
 import { useTheme } from "../../ThemeContext";
+import { useLayout } from "../../hooks/useLayout";
 import { font, type, spacing, radius, shadow, hit } from "../../theme";
 import AlertCard from "../../components/AlertCard";
 import Toast, { type ToastHandle } from "../../components/ui/Toast";
@@ -139,6 +140,7 @@ function ListSkeleton() {
 
 export default function NotificationsScreen() {
   const { colors } = useTheme();
+  const { isDesktop } = useLayout();
   const reduceMotion = useReducedMotion();
 
   const [notes, setNotes] = useState<Notification[]>([]);
@@ -250,7 +252,7 @@ export default function NotificationsScreen() {
       )}
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={isDesktop ? styles.scrollDesktop : styles.scroll}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -260,6 +262,12 @@ export default function NotificationsScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
+        <View style={isDesktop ? styles.desktopWrap : undefined}>
+        {/* Screen title */}
+        <View style={styles.pageHeader}>
+          <Text style={[styles.pageTitle, { color: colors.text }]}>Alerts</Text>
+        </View>
+
         {/* Demo button */}
         <Pressable
           onPress={handleSendDemo}
@@ -302,7 +310,7 @@ export default function NotificationsScreen() {
         {!initialLoad && (
           <Animated.View
             layout={reduceMotion || Platform.OS === "web" ? undefined : LinearTransition.springify().damping(18).stiffness(170)}
-            style={styles.list}
+            style={isDesktop ? styles.desktopGrid : styles.list}
           >
             {notes.map((note, i) => (
               <Animated.View
@@ -310,6 +318,7 @@ export default function NotificationsScreen() {
                 entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260).springify()}
                 exiting={reduceMotion ? undefined : FadeOutDown.duration(220)}
                 layout={reduceMotion || Platform.OS === "web" ? undefined : LinearTransition.springify().damping(18).stiffness(170)}
+                style={isDesktop ? styles.desktopGridItem : undefined}
               >
                 <AlertCard
                   notification={note}
@@ -320,6 +329,7 @@ export default function NotificationsScreen() {
             ))}
           </Animated.View>
         )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -327,7 +337,13 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 96 },
+  scrollDesktop: { paddingBottom: 96, alignItems: "center" },
+  desktopWrap: { maxWidth: 1120, width: "100%", paddingHorizontal: 40, paddingTop: spacing.lg, gap: spacing.lg },
+  desktopGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  desktopGridItem: { flexBasis: "48%", flexGrow: 1 },
+  pageHeader: { paddingTop: spacing.sm },
+  pageTitle: { fontSize: font.screen, fontFamily: type.uiBold, letterSpacing: -0.4 },
 
   // Demo button
   demoBtn: {

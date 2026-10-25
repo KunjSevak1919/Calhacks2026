@@ -29,6 +29,7 @@ import { useTheme } from "../../ThemeContext";
 import { font, type, spacing, radius, shadow } from "../../theme";
 import DebtGuardSwitch from "../../components/DebtGuardSwitch";
 import Skeleton from "../../components/Skeleton";
+import { useLayout } from "../../hooks/useLayout";
 
 // ── Scenario definitions ──────────────────────────────────────────────────────
 
@@ -212,6 +213,7 @@ function InstallmentSchedule({ result }: { result: VfcAuthorizeResponse }) {
 
 export default function SimulationScreen() {
   const { colors } = useTheme();
+  const { isDesktop } = useLayout();
   const reduceMotion = useReducedMotion();
 
   const [debtGuard, setDebtGuard] = useState(false);
@@ -264,137 +266,163 @@ export default function SimulationScreen() {
     }
   }, [loading]);
 
+  const cardAndScenariosEl = (
+    <>
+      <LinearGradient
+        colors={["#111827", "#1E3A5F"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.vfcCard}
+      >
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.15)" }]} pointerEvents="none" />
+        <View style={styles.vfcCardSheen} pointerEvents="none" />
+        <View style={styles.vfcTop}>
+          <View style={styles.vfcChip}>
+            <Ionicons name="hardware-chip-outline" size={20} color="#fff" style={{ opacity: 0.6 }} />
+          </View>
+          <Text style={styles.vfcSimBadge}>SIMULATION</Text>
+        </View>
+        <Text style={styles.vfcNumber}>•••• •••• •••• 0042</Text>
+        <View style={styles.vfcBottom}>
+          <View>
+            <Text style={styles.vfcFieldLabel}>CARD HOLDER</Text>
+            <Text style={styles.vfcName}>Pocket Pilot</Text>
+          </View>
+          <Text style={styles.vfcDesc}>
+            Virtual Funding Controller
+          </Text>
+        </View>
+        <FundingBadge result={result} />
+      </LinearGradient>
+      <DebtGuardSwitch
+        value={debtGuard}
+        onValueChange={handleDebtGuard}
+        explainer={
+          debtGuard
+            ? "Credit blocked while carrying a balance — routing to debit or installments."
+            : "Pay-in-full mode — credit allowed for max rewards."
+        }
+      />
+      <Text style={[styles.sectionLabel, { color: colors.muted }]}>Run a scenario</Text>
+      <View style={styles.scenarioRow}>
+        {SCENARIOS.map((s, idx) => {
+          const active = activeScenario === idx;
+          const isLoading = loading && active;
+          return (
+            <Pressable
+              key={s.label}
+              onPress={() => handleScenario(idx)}
+              disabled={loading}
+              accessibilityLabel={`${s.label} ${s.amountLabel}`}
+              style={({ pressed }) => [
+                styles.scenarioBtn,
+                {
+                  backgroundColor: active ? colors.primary : colors.surface,
+                  borderColor: active ? "transparent" : colors.border,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              {isLoading ? (
+                <Skeleton height={14} width={40} borderRadius={6} />
+              ) : (
+                <>
+                  <Text style={[styles.scenarioBtnLabel, { color: active ? colors.onPrimary : colors.text }]}>
+                    {s.label}
+                  </Text>
+                  <Text style={[styles.scenarioBtnAmount, { color: active ? colors.onPrimary : colors.muted, opacity: 0.8 }]}>
+                    {s.amountLabel}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+      {error && (
+        <View style={[styles.errorBox, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
+          <Ionicons name="warning" size={14} color={colors.warn} />
+          <Text style={[styles.errorText, { color: colors.warn }]}>{error}</Text>
+        </View>
+      )}
+      {result && !loading && (
+        <Animated.View
+          entering={reduceMotion ? undefined : FadeInDown.duration(260).springify()}
+          style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Text style={[styles.reasonText, { color: colors.text }]}>{result.reason}</Text>
+          {result.mcc_preserved && (
+            <View style={styles.mccRow}>
+              <Ionicons name="checkmark-circle" size={14} color={colors.good} />
+              <Text style={[styles.mccText, { color: colors.good }]}>
+                MCC {result.mcc} kept — category bonus preserved
+              </Text>
+            </View>
+          )}
+          {result.funding === "installments" && result.installments && (
+            <InstallmentSchedule result={result} />
+          )}
+        </Animated.View>
+      )}
+    </>
+  );
+
+  const rulesEl = (
+    <>
+      <Text style={[styles.sectionLabel, { color: colors.muted }]}>Decision rules</Text>
+      {rules.length === 0 ? (
+        <View style={{ gap: spacing.md }}>
+          {[110, 100, 110, 100].map((h, i) => (
+            <Skeleton key={i} height={h} borderRadius={radius.xl} />
+          ))}
+        </View>
+      ) : (
+        <View style={{ gap: spacing.md }}>
+          {rules.map((rule, i) => (
+            <Animated.View
+              key={rule.id}
+              entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260)}
+            >
+              <RuleCard rule={rule} matched={result?.rule_id === rule.id} />
+            </Animated.View>
+          ))}
+        </View>
+      )}
+    </>
+  );
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* VFC card — gradient with animated funding badge */}
-        <LinearGradient
-          colors={["#111827", "#1E3A5F"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.vfcCard}
-        >
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.15)" }]} pointerEvents="none" />
-          <View style={styles.vfcCardSheen} pointerEvents="none" />
-          <View style={styles.vfcTop}>
-            <View style={styles.vfcChip}>
-              <Ionicons name="hardware-chip-outline" size={20} color="#fff" style={{ opacity: 0.6 }} />
-            </View>
-            <Text style={styles.vfcSimBadge}>SIMULATION</Text>
-          </View>
-          <Text style={styles.vfcNumber}>•••• •••• •••• 0042</Text>
-          <View style={styles.vfcBottom}>
-            <View>
-              <Text style={styles.vfcFieldLabel}>CARD HOLDER</Text>
-              <Text style={styles.vfcName}>Pocket Pilot</Text>
-            </View>
-            <Text style={styles.vfcDesc}>
-              Virtual Funding Controller
-            </Text>
-          </View>
-          <FundingBadge result={result} />
-        </LinearGradient>
-
-        {/* Debt Guard */}
-        <DebtGuardSwitch
-          value={debtGuard}
-          onValueChange={handleDebtGuard}
-          explainer={
-            debtGuard
-              ? "Credit blocked while carrying a balance — routing to debit or installments."
-              : "Pay-in-full mode — credit allowed for max rewards."
-          }
-        />
-
-        {/* Scenarios */}
-        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Run a scenario</Text>
-        <View style={styles.scenarioRow}>
-          {SCENARIOS.map((s, idx) => {
-            const active = activeScenario === idx;
-            const isLoading = loading && active;
-            return (
-              <Pressable
-                key={s.label}
-                onPress={() => handleScenario(idx)}
-                disabled={loading}
-                accessibilityLabel={`${s.label} ${s.amountLabel}`}
-                style={({ pressed }) => [
-                  styles.scenarioBtn,
-                  {
-                    backgroundColor: active ? colors.primary : colors.surface,
-                    borderColor: active ? "transparent" : colors.border,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                {isLoading ? (
-                  <Skeleton height={14} width={40} borderRadius={6} />
-                ) : (
-                  <>
-                    <Text style={[styles.scenarioBtnLabel, { color: active ? colors.onPrimary : colors.text }]}>
-                      {s.label}
-                    </Text>
-                    <Text style={[styles.scenarioBtnAmount, { color: active ? colors.onPrimary : colors.muted, opacity: 0.8 }]}>
-                      {s.amountLabel}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Error */}
-        {error && (
-          <View style={[styles.errorBox, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
-            <Ionicons name="warning" size={14} color={colors.warn} />
-            <Text style={[styles.errorText, { color: colors.warn }]}>{error}</Text>
-          </View>
-        )}
-
-        {/* Result */}
-        {result && !loading && (
-          <Animated.View
-            entering={reduceMotion ? undefined : FadeInDown.duration(260).springify()}
-            style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          >
-            <Text style={[styles.reasonText, { color: colors.text }]}>{result.reason}</Text>
-
-            {result.mcc_preserved && (
-              <View style={styles.mccRow}>
-                <Ionicons name="checkmark-circle" size={14} color={colors.good} />
-                <Text style={[styles.mccText, { color: colors.good }]}>
-                  MCC {result.mcc} kept — category bonus preserved
-                </Text>
+      <ScrollView
+        contentContainerStyle={isDesktop ? styles.scrollDesktop : styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
+        {isDesktop ? (
+          <View style={styles.desktopWrap}>
+            <View style={styles.pageHeader}>
+              <Text style={[styles.pageTitle, { color: colors.text }]}>One Card</Text>
+              <View style={[styles.simChip, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
+                <Ionicons name="flask-outline" size={12} color={colors.warn} />
+                <Text style={[styles.simChipText, { color: colors.warn }]}>Simulated</Text>
               </View>
-            )}
-
-            {result.funding === "installments" && result.installments && (
-              <InstallmentSchedule result={result} />
-            )}
-          </Animated.View>
-        )}
-
-        {/* Decision rules */}
-        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Decision rules</Text>
-        {rules.length === 0 ? (
-          <View style={{ gap: spacing.md }}>
-            {[110, 100, 110, 100].map((h, i) => (
-              <Skeleton key={i} height={h} borderRadius={radius.xl} />
-            ))}
+            </View>
+            <View style={styles.desktopColumns}>
+              <View style={styles.desktopLeft}>{rulesEl}</View>
+              <View style={styles.desktopRight}>{cardAndScenariosEl}</View>
+            </View>
           </View>
         ) : (
-          <View style={{ gap: spacing.md }}>
-            {rules.map((rule, i) => (
-              <Animated.View
-                key={rule.id}
-                entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260)}
-              >
-                <RuleCard rule={rule} matched={result?.rule_id === rule.id} />
-              </Animated.View>
-            ))}
-          </View>
+          <>
+            <View style={styles.pageHeader}>
+              <Text style={[styles.pageTitle, { color: colors.text }]}>One Card</Text>
+              <View style={[styles.simChip, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
+                <Ionicons name="flask-outline" size={12} color={colors.warn} />
+                <Text style={[styles.simChipText, { color: colors.warn }]}>Simulated</Text>
+              </View>
+            </View>
+            {cardAndScenariosEl}
+            {rulesEl}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -403,7 +431,26 @@ export default function SimulationScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 96 },
+  scrollDesktop: { paddingBottom: 96, alignItems: "center" },
+  desktopWrap: { maxWidth: 1120, width: "100%", paddingHorizontal: 40, paddingTop: spacing.lg, gap: spacing.lg },
+  desktopColumns: { flexDirection: "row", gap: 32, alignItems: "flex-start" },
+  desktopLeft: { flex: 1, gap: spacing.md },
+  desktopRight: { flex: 1, gap: spacing.lg },
+
+  // Page header
+  pageHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingTop: spacing.sm },
+  pageTitle: { fontSize: font.screen, fontFamily: type.uiBold, letterSpacing: -0.4, flex: 1 },
+  simChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  simChipText: { fontSize: font.label, fontFamily: type.uiBold },
 
   // VFC card
   vfcCard: {

@@ -8,6 +8,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 import { font, type, spacing, radius } from "../theme";
 
@@ -28,6 +29,10 @@ function DebtGuardSwitch({
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(value ? 1 : 0);
 
+  // Capture colors in vars for worklet closure
+  const trackOff = colors.track;
+  const trackOn = colors.accent;
+
   useEffect(() => {
     progress.value = reduceMotion
       ? value ? 1 : 0
@@ -36,18 +41,16 @@ function DebtGuardSwitch({
 
   const trackStyle = useAnimatedStyle(() => ({
     backgroundColor: reduceMotion
-      ? value
-        ? colors.accent
-        : colors.track
-      : interpolateColor(progress.value, [0, 1], [colors.track, colors.accent]),
+      ? value ? trackOn : trackOff
+      : interpolateColor(progress.value, [0, 1], [trackOff, trackOn]),
   }));
 
   const thumbStyle = useAnimatedStyle(() => ({
     transform: [
       {
         translateX: reduceMotion
-          ? value ? 20 : 0
-          : interpolate(progress.value, [0, 1], [0, 20]),
+          ? value ? 22 : 0
+          : interpolate(progress.value, [0, 1], [0, 22]),
       },
     ],
   }));
@@ -61,15 +64,23 @@ function DebtGuardSwitch({
         accessibilityState={{ checked: value }}
         style={styles.row}
       >
+        {/* Shield icon tile */}
+        <View style={[styles.iconTile, { backgroundColor: colors.goodFill }]}>
+          <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
+        </View>
         <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
         <Animated.View style={[styles.track, trackStyle]}>
           <Animated.View
-            style={[styles.thumb, { backgroundColor: colors.surface }, thumbStyle]}
+            style={[
+              styles.thumb,
+              { backgroundColor: colors.surface },
+              thumbStyle,
+            ]}
           />
         </Animated.View>
       </Pressable>
       {explainer ? (
-        <Text style={[styles.explainer, { color: colors.textSecondary }]}>{explainer}</Text>
+        <Text style={[styles.explainer, { color: colors.muted }]}>{explainer}</Text>
       ) : null}
     </View>
   );
@@ -83,35 +94,46 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.md,
     minHeight: 44,
   },
+  iconTile: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   label: {
-    fontSize: font.body,
+    fontSize: 15.5,
     fontFamily: type.uiBold,
+    flex: 1,
   },
   track: {
-    width: 52,
+    width: 54,
     height: 32,
-    borderRadius: 16,
-    padding: 2,
+    borderRadius: 999,
+    padding: 3,
     justifyContent: "center",
   },
   thumb: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    shadowColor: "#0F172A",
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
     elevation: 2,
   },
   explainer: {
-    fontSize: font.body,
-    fontFamily: type.uiMedium,
-    marginTop: spacing.sm,
+    fontSize: 13,
+    fontFamily: type.uiSemi,
+    lineHeight: 1.5 * 13,
+    marginTop: spacing.xs,
+    marginLeft: 42 + spacing.md,
   },
 });
 
