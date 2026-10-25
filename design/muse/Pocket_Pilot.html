@@ -1,0 +1,1373 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Pocket Pilot — App UI Design</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        font-family: "Manrope", system-ui, -apple-system, sans-serif;
+        --page-bg: #edf0ec;
+        --page-bg2: #e3e9e2;
+        --page-ink: #12211a;
+        --page-ink2: #4c5c53;
+        --page-line: rgba(18, 33, 26, 0.12);
+        --page-panel: #ffffff;
+        --page-accent: #0a6b4e;
+        background: linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg2) 100%);
+        color: var(--page-ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          --page-bg: #0a0f0c;
+          --page-bg2: #0d130f;
+          --page-ink: #ecf3ee;
+          --page-ink2: #a3b5a9;
+          --page-line: rgba(236, 243, 238, 0.13);
+          --page-panel: #141b16;
+          --page-accent: #3ecf9b;
+        }
+      }
+      h1, h2, h3, p { margin: 0; }
+      button { font-family: inherit; cursor: pointer; }
+      input { font-family: inherit; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+      /* ---------- top bar ---------- */
+      .topbar {
+        position: sticky; top: 0; z-index: 50;
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+        border-bottom: 1px solid var(--page-line);
+      }
+      .topbar-in { display: flex; align-items: center; gap: 20px; height: 58px; }
+      .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; letter-spacing: -0.01em; }
+      .wordmark .mark {
+        width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+        background: linear-gradient(140deg, #0e7a58, #07503a); color: #d9f5e8;
+      }
+      .topnav { margin-left: auto; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+      .topnav::-webkit-scrollbar { display: none; }
+      .topnav a {
+        color: var(--page-ink2); text-decoration: none; font-size: 13.5px; font-weight: 700;
+        padding: 8px 12px; border-radius: 999px; white-space: nowrap;
+      }
+      .topnav a:hover { color: var(--page-ink); background: var(--page-line); }
+      @media (max-width: 680px) { .topnav { display: none; } }
+
+      /* ---------- hero ---------- */
+      .hero { padding: 56px 0 30px; }
+      .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 48px; align-items: start; }
+      .hero-copy { padding-top: 26px; max-width: 560px; }
+      .hero h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.06; letter-spacing: -0.025em; font-weight: 800; }
+      .hero h1 em { font-style: normal; color: var(--page-accent); }
+      .hero .sub { margin-top: 20px; font-size: 17px; line-height: 1.6; color: var(--page-ink2); font-weight: 500; }
+      .spec-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+      .spec-chips span {
+        font-size: 12.5px; font-weight: 700; padding: 8px 13px; border-radius: 999px;
+        border: 1px solid var(--page-line); background: var(--page-panel); color: var(--page-ink2);
+      }
+      .try-list { margin-top: 30px; display: grid; gap: 10px; }
+      .try-list div { display: flex; gap: 10px; align-items: baseline; font-size: 14.5px; font-weight: 600; color: var(--page-ink2); line-height: 1.45; }
+      .try-list b { color: var(--page-ink); }
+      .try-list .n {
+        flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+        background: var(--page-accent); color: #fff; font-size: 12px; font-weight: 800; transform: translateY(4px);
+      }
+      @media (prefers-color-scheme: dark) { .try-list .n { color: #06231a; } }
+
+      /* ---------- prototype controls ---------- */
+      .proto-col { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+      .proto-controls {
+        display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center;
+        background: var(--page-panel); border: 1px solid var(--page-line); border-radius: 999px; padding: 6px;
+      }
+      .proto-controls .seg { display: flex; background: var(--page-line); border-radius: 999px; padding: 3px; }
+      .proto-controls .seg button {
+        border: 0; background: transparent; padding: 7px 14px; border-radius: 999px;
+        font-size: 13px; font-weight: 700; color: var(--page-ink2); min-height: 36px;
+      }
+      .proto-controls .seg button.on { background: var(--page-panel); color: var(--page-ink); box-shadow: 0 1px 5px rgba(0,0,0,0.18); }
+      .proto-controls .lbl { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--page-ink2); padding: 0 4px 0 10px; }
+      .proto-note { font-size: 13px; color: var(--page-ink2); font-weight: 600; text-align: center; max-width: 420px; line-height: 1.5; }
+
+      /* ---------- phone frame + stage scaling ---------- */
+      .stagewrap { --s: 1; width: calc(412px * var(--s)); height: calc(866px * var(--s)); position: relative; flex: none; }
+      .stage { width: 412px; height: 866px; transform: scale(var(--s)); transform-origin: top left; }
+      .stagewrap.gal { --s: 0.72; }
+      @media (max-width: 900px) { .stagewrap.gal { --s: 0.6; } }
+      @media (max-width: 560px) {
+        .hero-grid { grid-template-columns: 1fr; }
+        .proto-col { order: 2; }
+        .stagewrap.proto { --s: 0.8; }
+        .stagewrap.gal { --s: 0.74; }
+      }
+      @media (max-width: 380px) { .stagewrap.proto { --s: 0.74; } .stagewrap.gal { --s: 0.7; } }
+
+      .phone {
+        width: 412px; height: 866px; border-radius: 55px; padding: 11px;
+        background: linear-gradient(160deg, #3a3f3c, #101211 30%, #26292a 70%, #0b0c0c);
+        box-shadow: 0 30px 60px -18px rgba(10, 25, 18, 0.45), 0 12px 24px rgba(10, 25, 18, 0.22), inset 0 0 0 2px rgba(255,255,255,0.08);
+      }
+      .phone-inner {
+        position: relative; height: 100%; border-radius: 44px; overflow: hidden;
+        background: var(--bg); color: var(--t1); display: flex; flex-direction: column;
+      }
+      .island {
+        position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+        width: 108px; height: 29px; border-radius: 999px; background: #000; z-index: 30;
+      }
+
+      /* ---------- design tokens (scoped to .ph) ---------- */
+      .ph {
+        --bg: #f2f4f1;
+        --surface: #ffffff;
+        --elev: #ffffff;
+        --t1: #0d1f15;
+        --t2: #43564b;
+        --accent: #0a6b4e;
+        --accent-soft: #e2f1ea;
+        --accent-ink: #ffffff;
+        --success: #0a6b4e;
+        --warn: #8a5a00;
+        --warn-bg: #fbf0d7;
+        --warn-fill: #dd9425;
+        --danger: #b33727;
+        --danger-bg: #fbeae7;
+        --border: rgba(13, 31, 21, 0.09);
+        --chip-bg: #e9efe9;
+        --tab-bg: rgba(255, 255, 255, 0.86);
+        --shadow-card: 0 14px 30px -12px rgba(13, 31, 21, 0.28);
+        font-family: "Manrope", system-ui, sans-serif;
+      }
+      .ph[data-theme="dark"] {
+        --bg: #0a0f0c;
+        --surface: #141c17;
+        --elev: #1d2821;
+        --t1: #edf4ef;
+        --t2: #a9bcb0;
+        --accent: #3ecf9b;
+        --accent-soft: #143327;
+        --accent-ink: #052418;
+        --success: #3ecf9b;
+        --warn: #f0b45c;
+        --warn-bg: #2d2110;
+        --warn-fill: #e8a33d;
+        --danger: #ff8d7e;
+        --danger-bg: #301711;
+        --border: rgba(237, 244, 239, 0.11);
+        --chip-bg: #1e2a23;
+        --tab-bg: rgba(16, 22, 18, 0.88);
+        --shadow-card: 0 14px 30px -12px rgba(0, 0, 0, 0.65);
+      }
+      .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+      /* ---------- in-phone chrome ---------- */
+      .statusbar {
+        flex: none; height: 48px; padding: 15px 28px 0; display: flex; justify-content: space-between; align-items: flex-start;
+        font-size: 14.5px; font-weight: 700; position: relative; z-index: 5;
+      }
+      .statusbar .sicons { display: flex; gap: 6px; align-items: center; color: var(--t1); }
+      .screen { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px 20px 108px; scrollbar-width: none; position: relative; }
+      .screen::-webkit-scrollbar { display: none; }
+      .screen.static { overflow: hidden; padding-bottom: 24px; }
+      .tabbar {
+        position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 20;
+        display: flex; padding: 8px 6px calc(8px + 4px); border-radius: 28px;
+        background: var(--tab-bg); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+        border: 1px solid var(--border); box-shadow: 0 12px 30px -12px rgba(0,0,0,0.35);
+      }
+      .tabbar button {
+        flex: 1; border: 0; background: transparent; color: var(--t2); min-height: 48px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+        font-size: 10.5px; font-weight: 700; border-radius: 18px; position: relative;
+        transition: transform 0.12s ease;
+      }
+      .tabbar button:active { transform: scale(0.93); }
+      .tabbar button.on { color: var(--accent); }
+      .tabbar button .badge {
+        position: absolute; top: 4px; right: calc(50% - 17px); min-width: 17px; height: 17px; padding: 0 4px;
+        border-radius: 999px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 800;
+        display: grid; place-items: center;
+      }
+      .ph[data-theme="dark"] .tabbar button .badge { color: #2b0d08; }
+
+      /* ---------- generic in-app pieces ---------- */
+      .app-head { display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; }
+      .avatar {
+        width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center;
+        background: linear-gradient(140deg, #0e7a58, #07402f); color: #e6f7ee; font-weight: 800; font-size: 17px;
+      }
+      .app-head h2 { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+      .app-head .hi { font-size: 13px; color: var(--t2); font-weight: 600; }
+      .app-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; padding: 10px 0 2px; }
+      .app-sub { font-size: 13.5px; color: var(--t2); font-weight: 600; line-height: 1.45; }
+      .icon-btn {
+        margin-left: auto; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
+        background: var(--surface); color: var(--t1); display: grid; place-items: center; flex: none;
+      }
+      .panel {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 16px;
+      }
+      .chip {
+        display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px;
+        border-radius: 999px; background: var(--chip-bg); color: var(--t1);
+        font-size: 12.5px; font-weight: 700; border: 1px solid transparent; white-space: nowrap;
+      }
+      .chip.accent { background: var(--accent-soft); color: var(--accent); }
+      .chip.warn { background: var(--warn-bg); color: var(--warn); }
+      .chip.danger { background: var(--danger-bg); color: var(--danger); }
+      .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: none; }
+      .btn {
+        border: 0; border-radius: 16px; min-height: 48px; padding: 12px 20px;
+        font-size: 15px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        transition: transform 0.12s ease, background 0.2s ease, color 0.2s ease;
+      }
+      .btn:active { transform: scale(0.96); }
+      .btn.primary { background: var(--accent); color: var(--accent-ink); }
+      .btn.secondary { background: var(--chip-bg); color: var(--t1); }
+      .btn.danger { background: var(--danger); color: #fff; }
+      .ph[data-theme="dark"] .btn.danger { color: #2b0d08; }
+      .btn.ghost { background: transparent; color: var(--accent); }
+      .btn.block { width: 100%; }
+
+      /* switch */
+      .switch {
+        width: 54px; height: 32px; border-radius: 999px; border: 0; flex: none; position: relative;
+        background: var(--chip-bg); transition: background 0.25s ease; padding: 0;
+      }
+      .switch::after {
+        content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+        background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .switch[aria-checked="true"] { background: var(--accent); }
+      .switch[aria-checked="true"]::after { transform: translateX(22px); }
+
+      /* usage bar */
+      .ubar { height: 8px; border-radius: 999px; background: var(--chip-bg); overflow: hidden; }
+      .ubar i {
+        display: block; height: 100%; width: 0; border-radius: 999px; background: var(--accent);
+        transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .ubar i.warn { background: var(--warn-fill); }
+      .ubar i.danger { background: var(--danger); }
+
+      /* ---------- credit card art ---------- */
+      .ccard {
+        border-radius: 24px; padding: 18px 20px; height: 208px; position: relative; overflow: hidden;
+        display: flex; flex-direction: column; color: #fff; text-align: left; width: 100%;
+        box-shadow: 0 16px 32px -14px rgba(10, 20, 14, 0.5), inset 0 1px 0 rgba(255,255,255,0.35);
+      }
+      .ccard::before {
+        content: ""; position: absolute; inset: 0;
+        background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.04) 58%, transparent 72%);
+        pointer-events: none;
+      }
+      .ccard::after {
+        content: ""; position: absolute; right: -46px; top: -56px; width: 190px; height: 190px; border-radius: 50%;
+        border: 26px solid rgba(255,255,255,0.09); pointer-events: none;
+      }
+      .art-aurum   { background: linear-gradient(135deg, #f0cd7e 0%, #d9a94f 38%, #bd8527 72%, #e5c169 100%); color: #38260a; }
+      .art-steady  { background: linear-gradient(135deg, #24467e 0%, #16294e 55%, #0b1830 100%); color: #e9effa; }
+      .art-zero    { background: linear-gradient(135deg, #43484f 0%, #26292e 55%, #131518 100%); color: #eceef1; }
+      .art-spin    { background: linear-gradient(135deg, #ffa05c 0%, #f26f2e 52%, #d34e12 100%); color: #fff5ec; }
+      .art-voyager { background: linear-gradient(135deg, #17685d 0%, #0c453d 58%, #052924 100%); color: #e2f3ee; }
+      .art-one     { background: linear-gradient(135deg, #2a3b32 0%, #131a16 55%, #1d2f27 100%); color: #e7f2ec; }
+      .cc-top { display: flex; align-items: flex-start; justify-content: space-between; position: relative; z-index: 1; }
+      .cc-name { font-size: 16.5px; font-weight: 800; letter-spacing: -0.01em; }
+      .cc-last { font-size: 13.5px; font-weight: 700; opacity: 0.85; font-variant-numeric: tabular-nums; }
+      .cc-perk { font-size: 11px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.78; margin-top: 2px; }
+      .cc-mid { display: flex; align-items: center; gap: 12px; margin-top: 14px; position: relative; z-index: 1; }
+      .cc-chip { width: 40px; height: 30px; border-radius: 7px; background: linear-gradient(150deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25)); border: 1px solid rgba(0,0,0,0.18); position: relative; flex: none; }
+      .cc-chip::before, .cc-chip::after { content: ""; position: absolute; left: 0; right: 0; height: 1px; background: rgba(0,0,0,0.22); }
+      .cc-chip::before { top: 10px; } .cc-chip::after { top: 19px; }
+      .cc-wave { opacity: 0.85; }
+      .cc-bal { margin-top: auto; position: relative; z-index: 1; }
+      .cc-amt { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+      .cc-of { font-size: 13px; font-weight: 600; opacity: 0.85; margin-left: 6px; }
+      .cc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; position: relative; z-index: 1; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
+      .cc-detail {
+        position: relative; z-index: 1; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border);
+        display: none;
+      }
+      .stack.fanned .cc-detail, .ccard.open .cc-detail { display: block; animation: fadeUp 0.3s ease both; }
+      .cc-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+      .cc-meta div { font-size: 12px; color: var(--t2); font-weight: 600; }
+      .cc-meta b { display: block; font-size: 13.5px; color: var(--t1); font-weight: 800; }
+      .ccard.on-surface { background: var(--surface); color: var(--t1); box-shadow: none; border: 1px solid var(--border); height: auto; }
+      .ccard.on-surface::before, .ccard.on-surface::after { display: none; }
+
+      /* card stack */
+      .stack { position: relative; transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+      .cardwrap { position: absolute; left: 0; right: 0; transition: top 0.35s cubic-bezier(0.3, 1.35, 0.4, 1), transform 0.25s ease; }
+      .cardwrap .ccard { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+      .cardwrap.lifted { z-index: 40 !important; }
+      .cardwrap.lifted .ccard { transform: translateY(-5px) scale(1.015); box-shadow: 0 26px 44px -16px rgba(10, 20, 14, 0.55); }
+      .stack:not(.fanned) .ccard { cursor: pointer; }
+
+      /* impact strip */
+      .impact { background: linear-gradient(140deg, #0d5c40, #083d2a); color: #eaf7f0; border-radius: 24px; padding: 18px 20px; position: relative; overflow: hidden; }
+      .impact::after { content: ""; position: absolute; right: -30px; top: -40px; width: 150px; height: 150px; border-radius: 50%; border: 22px solid rgba(255,255,255,0.07); }
+      .impact .lbl { font-size: 12px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.85; }
+      .impact .total { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; margin: 4px 0 12px; font-variant-numeric: tabular-nums; }
+      .impact .rows { display: grid; gap: 7px; position: relative; z-index: 1; }
+      .impact .rows div { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; }
+      .impact .rows b { font-variant-numeric: tabular-nums; font-weight: 800; }
+
+      /* ranked rows */
+      .rank-row { display: flex; align-items: center; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+      .rank-row:last-child { border-bottom: 0; }
+      .rank-dot { width: 38px; height: 38px; border-radius: 12px; flex: none; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.03em; }
+      .rank-row .rn { font-size: 14.5px; font-weight: 800; line-height: 1.2; }
+      .rank-row .rs { font-size: 12px; color: var(--t2); font-weight: 600; }
+      .rank-row .rv { margin-left: auto; text-align: right; }
+      .rank-row .rv .plus { color: var(--success); font-weight: 800; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+      .rank-row .rv .minus { color: var(--danger); font-weight: 800; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+      .rank-row.dim { opacity: 0.45; }
+      .rank-row.win .rn::after { content: " · Best"; color: var(--accent); font-size: 12px; }
+
+      /* winner */
+      @keyframes riseIn { 0% { transform: translateY(26px) scale(0.96); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+      .winner-card { animation: riseIn 0.35s cubic-bezier(0.3, 1.3, 0.4, 1) both; }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-up { animation: fadeUp 0.35s ease both; }
+
+      /* segmented funding control */
+      .segctl { position: relative; display: flex; background: var(--chip-bg); border-radius: 999px; padding: 4px; }
+      .segctl .pill {
+        position: absolute; top: 4px; bottom: 4px; border-radius: 999px; background: var(--surface);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18); transition: transform 0.32s cubic-bezier(0.3, 1.3, 0.4, 1), width 0.32s ease;
+      }
+      .segctl button {
+        flex: 1; position: relative; z-index: 1; border: 0; background: transparent; min-height: 44px;
+        font-size: 13.5px; font-weight: 800; color: var(--t2); border-radius: 999px; padding: 0 4px;
+      }
+      .segctl button.on { color: var(--t1); }
+
+      /* alerts */
+      .alert-card { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 18px; overflow: hidden; transition: opacity 0.3s ease; }
+      .alert-card .a-ico { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; flex: none; }
+      .alert-card h3 { font-size: 16px; font-weight: 800; line-height: 1.35; letter-spacing: -0.01em; }
+      .alert-card p { font-size: 13.5px; color: var(--t2); font-weight: 600; line-height: 1.5; margin-top: 5px; }
+      .alert-actions { display: flex; gap: 10px; margin-top: 14px; }
+      .alert-actions .btn { flex: 1; min-height: 48px; }
+      .alert-card.done { background: var(--accent-soft); border-color: transparent; }
+      @keyframes collapseOut { to { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+
+      /* chat */
+      .bubble { max-width: 84%; padding: 12px 15px; border-radius: 20px; font-size: 14.5px; line-height: 1.55; font-weight: 600; }
+      .bubble.coach { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 8px; align-self: flex-start; }
+      .bubble.user { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 8px; align-self: flex-end; }
+      .chat-col { display: flex; flex-direction: column; gap: 10px; }
+      .coach-row { display: flex; gap: 9px; align-items: flex-end; }
+      .coach-ava { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; background: linear-gradient(140deg, #0e7a58, #07402f); color: #d9f5e8; }
+      .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .compare .col { border-radius: 18px; padding: 14px; }
+      .compare .good { background: var(--accent-soft); }
+      .compare .bad { background: var(--danger-bg); }
+      .compare .ct { font-size: 12px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+      .compare .good .ct { color: var(--accent); } .compare .bad .ct { color: var(--danger); }
+      .compare .cv { font-size: 21px; font-weight: 800; margin-top: 5px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+      .compare .cs { font-size: 12px; color: var(--t2); font-weight: 600; margin-top: 3px; line-height: 1.45; }
+      .qchips { display: flex; gap: 8px; flex-wrap: wrap; }
+      .qchips button {
+        border: 1px solid var(--border); background: var(--surface); color: var(--t1); border-radius: 999px;
+        min-height: 44px; padding: 10px 15px; font-size: 13px; font-weight: 700; text-align: left;
+        transition: transform 0.12s ease;
+      }
+      .qchips button:active { transform: scale(0.96); }
+      .chat-input {
+        display: flex; gap: 9px; align-items: center; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 999px; padding: 5px 5px 5px 18px; margin-top: 14px;
+      }
+      .chat-input input { flex: 1; border: 0; background: transparent; color: var(--t1); font-size: 14.5px; font-weight: 600; outline: none; min-width: 0; }
+      .chat-input input::placeholder { color: var(--t2); }
+      .send-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; }
+
+      /* forms in phone */
+      .field {
+        display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 18px; padding: 0 16px; min-height: 54px;
+      }
+      .field svg { color: var(--t2); flex: none; }
+      .field input { flex: 1; border: 0; background: transparent; outline: none; color: var(--t1); font-size: 15.5px; font-weight: 700; min-width: 0; }
+      .field input::placeholder { color: var(--t2); font-weight: 600; }
+      .quick { display: flex; gap: 8px; flex-wrap: wrap; }
+      .quick button {
+        border: 1px solid var(--border); background: var(--surface); color: var(--t1); border-radius: 999px;
+        min-height: 44px; padding: 10px 16px; font-size: 13.5px; font-weight: 700;
+        transition: transform 0.12s ease, background 0.2s ease, color 0.2s ease;
+      }
+      .quick button:active { transform: scale(0.95); }
+      .quick button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+      .amount-field { display: flex; align-items: baseline; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 12px 16px; }
+      .amount-field .cur { font-size: 22px; font-weight: 800; color: var(--t2); }
+      .amount-field input { flex: 1; border: 0; background: transparent; outline: none; color: var(--t1); font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 0; }
+
+      /* skeleton / states */
+      @keyframes shimmer { from { background-position: -300px 0; } to { background-position: 300px 0; } }
+      .skl {
+        border-radius: 14px;
+        background: linear-gradient(90deg, var(--chip-bg) 25%, var(--border) 50%, var(--chip-bg) 75%);
+        background-size: 600px 100%; animation: shimmer 1.2s linear infinite;
+      }
+      .state-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 26px 120px; gap: 8px; }
+      .state-ico { width: 72px; height: 72px; border-radius: 24px; display: grid; place-items: center; margin-bottom: 8px; }
+      .toast {
+        position: absolute; left: 20px; right: 20px; bottom: 104px; z-index: 25;
+        background: var(--t1); color: var(--bg); border-radius: 16px; padding: 13px 16px;
+        font-size: 13.5px; font-weight: 700; display: flex; gap: 9px; align-items: center;
+        box-shadow: 0 16px 32px -10px rgba(0,0,0,0.4); animation: fadeUp 0.3s ease both;
+      }
+
+      /* reduced motion inside phones */
+      .ph.rm *, .ph.rm *::before, .ph.rm *::after { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
+      @media (prefers-reduced-motion: reduce) {
+        .ph *, .ph *::before, .ph *::after { animation-duration: 0.01s !important; transition-duration: 0.01s !important; }
+        html { scroll-behavior: auto; }
+      }
+
+      /* ---------- page sections ---------- */
+      section.block { padding: 64px 0 8px; }
+      .sec-head { max-width: 640px; margin-bottom: 30px; }
+      .sec-head h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+      .sec-head p { margin-top: 10px; font-size: 15.5px; line-height: 1.6; color: var(--page-ink2); font-weight: 500; }
+      .gallery-row { margin-bottom: 48px; }
+      .gallery-row > h3 { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 4px; }
+      .gallery-row > p { font-size: 14px; color: var(--page-ink2); font-weight: 600; margin-bottom: 18px; max-width: 620px; line-height: 1.55; }
+      .phone-pair { display: flex; gap: 34px; flex-wrap: wrap; }
+      .phone-cell { display: flex; flex-direction: column; gap: 10px; }
+      .phone-cell .cap { font-size: 12.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--page-ink2); display: flex; align-items: center; gap: 7px; }
+      .phone-cell .cap i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+      .no-pointer { pointer-events: none; }
+
+      /* component sheet */
+      .sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+      @media (max-width: 860px) { .sheet-grid { grid-template-columns: 1fr; } }
+      .sheet { border-radius: 28px; padding: 26px; background: var(--bg); color: var(--t1); border: 1px solid var(--border); }
+      .sheet h3 { font-size: 15px; font-weight: 800; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+      .comp { margin-bottom: 24px; }
+      .comp:last-child { margin-bottom: 4px; }
+      .comp > .cl { font-size: 11px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: var(--t2); margin-bottom: 10px; }
+      .comp .rowflex { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+      /* tokens */
+      .token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
+      .token-panel { background: var(--page-panel); border: 1px solid var(--page-line); border-radius: 24px; padding: 22px; }
+      .token-panel h3 { font-size: 15.5px; font-weight: 800; margin-bottom: 14px; }
+      .swatches { display: grid; gap: 8px; }
+      .sw { display: flex; align-items: center; gap: 12px; }
+      .sw i { width: 38px; height: 38px; border-radius: 12px; flex: none; border: 1px solid var(--page-line); }
+      .sw .sn { font-size: 13.5px; font-weight: 800; }
+      .sw .sv { font-size: 12px; color: var(--page-ink2); font-weight: 600; font-variant-numeric: tabular-nums; }
+      .sw .duo { margin-left: auto; display: flex; gap: 6px; }
+      .sw .duo i { width: 26px; height: 26px; border-radius: 8px; }
+      .type-row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--page-line); }
+      .type-row:last-child { border-bottom: 0; }
+      .type-row .tv { color: var(--page-ink2); font-size: 12px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .space-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; font-weight: 700; }
+      .space-row .bar { height: 14px; background: var(--page-accent); border-radius: 4px; opacity: 0.75; }
+      .space-row .sv2 { color: var(--page-ink2); font-variant-numeric: tabular-nums; }
+
+      /* motion notes */
+      .motion-list { display: grid; gap: 12px; }
+      .motion-item {
+        display: grid; grid-template-columns: 220px 1fr auto auto; gap: 18px; align-items: center;
+        background: var(--page-panel); border: 1px solid var(--page-line); border-radius: 20px; padding: 18px 22px;
+      }
+      @media (max-width: 860px) { .motion-item { grid-template-columns: 1fr; gap: 8px; } }
+      .motion-item h3 { font-size: 15.5px; font-weight: 800; }
+      .motion-item p { font-size: 13.5px; color: var(--page-ink2); font-weight: 600; line-height: 1.55; }
+      .motion-item p code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--page-ink); }
+      .motion-item .meta { text-align: right; }
+      .motion-item .meta b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+      .motion-item .meta span { font-size: 12px; color: var(--page-ink2); font-weight: 700; }
+      footer { padding: 60px 0 46px; color: var(--page-ink2); font-size: 13.5px; font-weight: 600; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="wrap topbar-in">
+        <div class="wordmark">
+          <span class="mark" aria-hidden="true">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          </span>
+          Pocket Pilot
+        </div>
+        <nav class="topnav">
+          <a href="#prototype">Prototype</a>
+          <a href="#screens">Screens</a>
+          <a href="#states">States</a>
+          <a href="#components">Components</a>
+          <a href="#tokens">Tokens</a>
+          <a href="#motion">Motion</a>
+        </nav>
+      </div>
+    </div>
+
+    <header class="hero" id="prototype">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1>Most apps help you earn points. <em>Pocket Pilot makes sure you keep your money.</em></h1>
+          <p class="sub">A credit-card copilot for college students juggling their first cards. It picks the card that costs the least — not the one with the flashiest points — and explains every call in plain words. This is the full UI design: a working prototype, every screen in light and dark, components, tokens, and motion notes for the Expo / React Native build.</p>
+          <div class="spec-chips">
+            <span>iPhone · 390 × 844</span>
+            <span>Expo / React Native</span>
+            <span>Light + dark tokens</span>
+            <span>WCAG AA text</span>
+            <span>Touch targets ≥ 44pt</span>
+          </div>
+          <div class="try-list">
+            <div><span class="n">1</span><span><b>Tap the card stack</b> on Wallet to fan out all five cards, then tap one to lift it.</span></div>
+            <div><span class="n">2</span><span><b>Flip Debt Guard</b> — on Pay, the winning card re-animates from Aurum Gold to Zero Intro.</span></div>
+            <div><span class="n">3</span><span><b>Approve the Aurum alert</b> — the button becomes a check and the alert settles into “Done.”</span></div>
+            <div><span class="n">4</span><span><b>Ask Coach a chip question</b> and compare paying in full vs. minimum only.</span></div>
+          </div>
+        </div>
+        <div class="proto-col">
+          <div class="proto-controls" role="group" aria-label="Prototype controls">
+            <span class="lbl">Theme</span>
+            <div class="seg" id="ctl-theme">
+              <button data-ctheme="light" class="on">Light</button>
+              <button data-ctheme="dark">Dark</button>
+            </div>
+            <span class="lbl">State</span>
+            <div class="seg" id="ctl-state">
+              <button data-cstate="live" class="on">Live</button>
+              <button data-cstate="loading">Loading</button>
+              <button data-cstate="error">Error</button>
+              <button data-cstate="empty">Empty</button>
+            </div>
+            <div class="seg" id="ctl-motion">
+              <button data-cmotion="on" class="on">Motion</button>
+              <button data-cmotion="off">Reduced</button>
+            </div>
+          </div>
+          <div class="stagewrap proto"><div class="stage" id="proto-mount"></div></div>
+          <p class="proto-note">Fully tappable: tab bar, card stack, Debt Guard, store picks, funding switch, alert actions and Coach chips all work. Nothing here charges anything — it’s a design prototype.</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="block" id="screens">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>All five screens, both themes</h2>
+          <p>Every screen is drawn from the same token set — only the token values change between light and dark. Card art is identical in both themes, like the physical cards it represents.</p>
+        </div>
+        <div id="gallery-mount"></div>
+      </div>
+    </section>
+
+    <section class="block" id="states">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>Loading, error &amp; empty states</h2>
+          <p>The three states every screen needs. Loading uses a shimmer skeleton in the real layout’s shape; the error state says plainly that nothing was paid; the empty state appears before a first card is linked.</p>
+        </div>
+        <div class="phone-pair" id="states-mount"></div>
+      </div>
+    </section>
+
+    <section class="block" id="components">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>Component sheet</h2>
+          <p>The building blocks, rendered live from the same CSS the screens use — card, chip, usage bar, alert card, buttons, switch, chat bubble and ranked row, in both themes.</p>
+        </div>
+        <div class="sheet-grid" id="sheet-mount"></div>
+      </div>
+    </section>
+
+    <section class="block" id="tokens">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>Design tokens</h2>
+          <p>One token file drives both themes. Accent is a deep emerald (“money kept”), amber is reserved for warnings, and a soft red means interest or danger. Every text/background pair below meets WCAG AA.</p>
+        </div>
+        <div class="token-grid" id="tokens-mount"></div>
+      </div>
+    </section>
+
+    <section class="block" id="motion">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>Motion notes</h2>
+          <p>Subtle and purposeful: 150–350ms, spring easing, and everything collapses to a short fade when the system “reduce motion” setting is on. Each note names the trigger, timing, and the React Native Reanimated approach.</p>
+        </div>
+        <div class="motion-list" id="motion-mount"></div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        Pocket Pilot — original concept UI. Card names, artwork and brand are fictional; no real bank, card network or app branding is used. Balances and figures are the design spec’s sample data. In-app data badge: “Live data · Capital One Nessie.”
+      </div>
+    </footer>
+
+    <script>
+      /* =================== data =================== */
+      const CARDS = [
+        { id: "aurum",   name: "Aurum Gold", last4: "1009", bal: 640, limit: 5000,  pct: 13, apr: 29.9, aprLabel: "29.9% APR", due: "Oct 30", perk: "4% grocery",        art: "art-aurum",   short: "AU", detail: "4% back on groceries · 1% elsewhere" },
+        { id: "steady",  name: "Steady 2%",  last4: "4821", bal: 310, limit: 3000,  pct: 10, apr: 24.9, aprLabel: "24.9% APR", due: "Nov 12", perk: "2% everything",     art: "art-steady",  short: "ST", detail: "2% back on everything, no categories" },
+        { id: "zero",    name: "Zero Intro", last4: "3352", bal: 0,   limit: 4000,  pct: 0,  apr: 0,    aprLabel: "0% intro APR", due: "—",   perk: "0% intro APR",      art: "art-zero",    short: "ZI", detail: "Bonus: $340 of spend left to earn the $200 bonus" },
+        { id: "spin",    name: "Spin 5%",    last4: "7731", bal: 370, limit: 2500,  pct: 15, apr: 26.2, aprLabel: "26.2% APR", due: "Nov 8",  perk: "Rotating 5%",       art: "art-spin",    short: "SP", detail: "5% on this quarter’s rotating category: gas" },
+        { id: "voyager", name: "Voyager",    last4: "2208", bal: 820, limit: 10000, pct: 8,  apr: 27.4, aprLabel: "27.4% APR", due: "Nov 15", perk: "$95 annual fee",    art: "art-voyager", short: "VO", detail: "$95 annual fee due Nov 15 · 3% on dining" },
+      ];
+      const money = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const money0 = (n) => "$" + n.toLocaleString("en-US");
+
+      const STORES = {
+        "Whole Foods": { cat: "grocery", chip: "Whole Foods counts as grocery", rates: { aurum: 4, steady: 2, zero: 1, spin: 1, voyager: 1 } },
+        "Target":      { cat: "discount store", chip: "Target counts as a discount store, not grocery", rates: { aurum: 1, steady: 2, zero: 1, spin: 1, voyager: 1 } },
+        "Costco":      { cat: "warehouse", chip: "Costco counts as a warehouse store, not grocery", rates: { aurum: 1, steady: 2, zero: 1, spin: 1, voyager: 1 } },
+        "Shell":       { cat: "gas", chip: "Shell counts as gas — Spin 5%’s rotating category this quarter", rates: { aurum: 1, steady: 2, zero: 1, spin: 5, voyager: 1 } },
+        "Chipotle":    { cat: "dining", chip: "Chipotle counts as dining", rates: { aurum: 1, steady: 2, zero: 1, spin: 1, voyager: 3 } },
+      };
+      const STORE_NAMES = Object.keys(STORES);
+
+      /* =================== icons =================== */
+      const I = (p, s) => `<svg width="${s || 22}" height="${s || 22}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+      const ICONS = {
+        wallet: I('<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18" opacity=".45"/><circle cx="16.8" cy="14.5" r="1.15" fill="currentColor" stroke="none"/>'),
+        zap: I('<path d="M13 2 4.5 13.5H11L9.8 22 19 10h-6.5L13 2z"/>'),
+        card: I('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18"/><path d="M7 15h4"/>'),
+        bell: I('<path d="M6 9a6 6 0 1 1 12 0c0 4.5 2 5.5 2 5.5H4S6 13.5 6 9"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/>'),
+        chat: I('<path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.6L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z"/>'),
+        shield: I('<path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>', 20),
+        check: I('<path d="M4 12.5l5 5L20 6.5"/>', 20),
+        search: I('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/>', 20),
+        alert: I('<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>', 20),
+        spark: I('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"/>', 16),
+        send: I('<path d="M21 3 10.5 13.5"/><path d="M21 3 14 21l-3.5-7.5L3 10 21 3z"/>', 19),
+        wave: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9a8 8 0 0 1 0 6"/><path d="M9.5 6.5a12 12 0 0 1 0 11"/><path d="M13 4a16 16 0 0 1 0 16"/></svg>',
+        chevD: I('<path d="M6 9l6 6 6-6"/>', 18),
+        clock: I('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 18),
+        gift: I('<rect x="4" y="10" width="16" height="10" rx="2"/><path d="M12 10v10M4 15h16"/><path d="M12 10a3 3 0 1 1 3-3c0 2-3 3-3 3zm0 0a3 3 0 1 0-3-3c0 2 3 3 3 3z"/>', 20),
+        tag: I('<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9z"/><circle cx="8" cy="8" r="1.4"/>', 20),
+      };
+      const statusIcons = '<svg width="66" height="14" viewBox="0 0 66 14" fill="currentColor" aria-hidden="true"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.5" y="5" width="3" height="7" rx="1"/><rect x="9" y="3" width="3" height="9" rx="1"/><rect x="13.5" y="1" width="3" height="11" rx="1" opacity=".35"/><path d="M22 4.5a7 7 0 0 1 9 0l-1.6 1.8a5 5 0 0 0-5.8 0L22 4.5z"/><circle cx="26.5" cy="9.6" r="1.5"/><rect x="36" y="2" width="24" height="10" rx="3.5" fill="none" stroke="currentColor" opacity=".5"/><rect x="38" y="4" width="16" height="6" rx="2"/><path d="M62 5v4a2.2 2.2 0 0 0 0-4z"/></svg>';
+
+      /* =================== shared pieces =================== */
+      function statusBar() {
+        return `<div class="statusbar"><span class="num">9:41</span><span class="sicons">${statusIcons}</span></div>`;
+      }
+      const TABS = [
+        { id: "wallet", label: "Wallet", icon: "wallet" },
+        { id: "pay", label: "Pay", icon: "zap" },
+        { id: "one", label: "One Card", icon: "card" },
+        { id: "alerts", label: "Alerts", icon: "bell", badge: 3 },
+        { id: "coach", label: "Coach", icon: "chat" },
+      ];
+      function tabBar(active) {
+        return `<nav class="tabbar">${TABS.map(t => `
+          <button data-action="tab" data-tab="${t.id}" class="${active === t.id ? "on" : ""}" aria-label="${t.label}">
+            ${ICONS[t.icon]}<span>${t.label}</span>${t.badge && active !== "alerts" ? `<span class="badge">${t.badge}</span>` : ""}
+          </button>`).join("")}</nav>`;
+      }
+      function usageBar(pct) {
+        const cls = pct > 30 ? "warn" : "";
+        return `<div class="ubar"><i class="${cls}" data-fill="${pct}"></i></div>`;
+      }
+      function cardFace(c, opts) {
+        opts = opts || {};
+        return `
+        <article class="ccard ${c.art}" data-action="card" data-id="${c.id}" style="${opts.style || ""}">
+          <div class="cc-top">
+            <div><div class="cc-name">${c.name}</div><div class="cc-perk">${c.perk}</div></div>
+            <span class="cc-last">••${c.last4}</span>
+          </div>
+          <div class="cc-mid"><span class="cc-chip"></span><span class="cc-wave">${ICONS.wave}</span></div>
+          <div class="cc-bal"><span class="cc-amt num">${money0(c.bal)}</span><span class="cc-of">of ${money0(c.limit)}</span></div>
+          <div class="cc-foot"><span>Kirtan</span><span>${c.pct}% used</span></div>
+          ${opts.detail ? `
+          <div class="cc-detail">
+            ${usageBar(c.pct)}
+            <div class="cc-meta">
+              <div>APR<b>${c.aprLabel}</b></div>
+              <div>Due<b>${c.due}</b></div>
+              <div>Balance<b>${money(c.bal)}</b></div>
+            </div>
+            <p style="font-size:12.5px;font-weight:600;margin-top:10px;opacity:.95">${c.detail}</p>
+          </div>` : ""}
+        </article>`;
+      }
+      /* detail panel rendered on a surface under the art face (fanned list) */
+      function cardDetailPanel(c) {
+        return `
+        <div class="panel" style="border-radius:20px;padding:13px 16px;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;color:var(--t2)"><span>Credit used</span><span class="num" style="color:${c.pct > 30 ? "var(--warn)" : "var(--t1)"}">${c.pct}%</span></div>
+          <div style="margin-top:7px">${usageBar(c.pct)}</div>
+          <div class="cc-meta" style="margin-top:11px">
+            <div>APR<b>${c.aprLabel}</b></div>
+            <div>Due<b>${c.due}</b></div>
+            <div>Balance<b>${money(c.bal)}</b></div>
+          </div>
+          <p style="font-size:12.5px;font-weight:600;color:var(--t2);margin-top:9px;line-height:1.45">${c.detail}</p>
+        </div>`;
+      }
+      function debtGuardRow(on, explainer) {
+        return `
+        <div class="panel" style="display:flex;gap:13px;align-items:flex-start">
+          <span style="width:42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none">${ICONS.shield}</span>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <b style="font-size:15.5px;font-weight:800">Debt Guard</b>
+              <button class="switch" role="switch" aria-checked="${on}" data-action="guard" aria-label="Debt Guard"></button>
+            </div>
+            ${explainer ? `<p style="font-size:13px;color:var(--t2);font-weight:600;line-height:1.5;margin-top:4px">On when you carry a balance: picks the card that costs you least, not the one with the most points.</p>` : ""}
+          </div>
+        </div>`;
+      }
+
+      /* =================== screens =================== */
+      function walletScreen(st) {
+        const peek = 42, cardH = 208, detailH = 168;
+        const n = CARDS.length;
+        const collapsedH = cardH + (n - 1) * peek;
+        const fannedH = n * (cardH + detailH) + (n - 1) * 14;
+        const stack = CARDS.map((c, i) => {
+          const top = st.fanned ? i * (cardH + detailH + 14) : i * peek;
+          return `
+          <div class="cardwrap" style="top:${top}px;z-index:${n - i}">
+            ${cardFace(c)}
+            <div style="display:${st.fanned ? "block" : "none"}">${cardDetailPanel(c)}</div>
+          </div>`;
+        }).join("");
+        return `
+        ${statusBar()}
+        <div class="screen ${st.proto ? "" : "static"}">
+          <div class="app-head">
+            <span class="avatar">K</span>
+            <div><div class="hi">Good afternoon</div><h2>Kirtan</h2></div>
+            <button class="icon-btn" data-action="bell" aria-label="Notifications">${ICONS.bell}</button>
+          </div>
+
+          <div class="impact" style="margin-top:14px">
+            <div style="display:flex;gap:16px;align-items:center;position:relative;z-index:1">
+              <div style="flex:none">
+                <div class="lbl">Money kept<br />this month</div>
+                <div class="total num" data-count="73.40" style="font-size:36px;margin:6px 0 0">$0.00</div>
+              </div>
+              <div class="rows" style="flex:1">
+                <div><span>Interest avoided</span><b class="num" data-count="16">$0</b></div>
+                <div><span>Late fees avoided</span><b class="num" data-count="39">$0</b></div>
+                <div><span>Rewards earned</span><b class="num" data-count="18.40">$0.00</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 4px">
+            <b style="font-size:17px;font-weight:800">Your cards</b>
+            <span class="num" style="font-size:13px;font-weight:700;color:var(--t2)">$2,140 of $24,500 · 9% used</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <span class="chip accent"><span class="dot"></span>Live data · Capital One Nessie</span>
+            <span class="chip">${ICONS.clock} Next due · Aurum Gold, Oct 30</span>
+          </div>
+
+          <div class="stack ${st.fanned ? "fanned" : ""}" data-action="fan" style="height:${st.fanned ? fannedH : collapsedH}px;position:relative;cursor:${st.fanned ? "default" : "pointer"}">
+            ${stack}
+          </div>
+          ${st.proto ? `<p style="text-align:center;font-size:12.5px;font-weight:700;color:var(--t2);margin-top:10px">${st.fanned ? "Tap a card to lift it · tap the background to collapse" : "Tap the stack to fan out all 5 cards"}</p>` : ""}
+
+          <div style="margin-top:14px">${debtGuardRow(st.debtGuard, true)}</div>
+        </div>
+        ${tabBar("wallet")}`;
+      }
+
+      function rankCalc(st) {
+        const store = STORES[st.store] || STORES["Whole Foods"];
+        const amt = st.amount || 0;
+        return CARDS.map(c => {
+          const rate = store.rates[c.id];
+          const rewards = amt * rate / 100;
+          const interest = c.bal > 0 && c.apr > 0 ? amt * c.apr / 100 * 0.25 : 0; /* 3 months carried */
+          return { c, rate, rewards, interest, net: rewards - interest };
+        }).sort((a, b) => (st.debtGuard ? b.net - a.net : b.rewards - a.rewards));
+      }
+      function payScreen(st) {
+        const store = STORES[st.store];
+        const ranked = rankCalc(st);
+        const win = ranked[0];
+        const aurum = ranked.find(r => r.c.id === "aurum");
+        const winReason = st.debtGuard && win.c.id !== aurum.c.id
+          ? `Use ${win.c.name} instead. ${aurum.c.name} would earn ${money(aurum.rewards)}, but its ${aurum.c.aprLabel} would cost ${money(aurum.interest)} over 3 months.`
+          : `${win.c.name}: ${win.rate}% on ${store.cat}, ${money(win.rewards)} back`;
+        return `
+        ${statusBar()}
+        <div class="screen ${st.proto ? "" : "static"}">
+          <div class="app-title">Pay here</div>
+          <p class="app-sub">Tell Pilot where you are — it picks the card before you tap.</p>
+
+          <div class="field" style="margin-top:13px">${ICONS.search}
+            <input data-role="store-search" placeholder="Search a store" value="${st.store}" aria-label="Search a store" />
+          </div>
+          <div class="quick" style="margin-top:10px">
+            ${STORE_NAMES.map(s => `<button data-action="store" data-store="${s}" class="${st.store === s ? "on" : ""}">${s}</button>`).join("")}
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin:15px 0 8px">
+            <b style="font-size:14px;font-weight:800">Amount</b>
+            <span style="font-size:12px;font-weight:700;color:var(--t2)">Store type</span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:stretch">
+            <div class="amount-field" style="flex:1"><span class="cur">$</span><input data-role="amount" inputmode="decimal" value="${st.amount.toFixed(2)}" aria-label="Amount" /></div>
+          </div>
+          <div style="margin-top:10px"><span class="chip warn">${ICONS.tag} ${store.chip}</span></div>
+
+          <div style="margin-top:13px">${debtGuardRow(st.debtGuard, false)}</div>
+
+          <div style="margin:17px 0 10px;display:flex;align-items:baseline;justify-content:space-between">
+            <b style="font-size:15px;font-weight:800">Best card for this purchase</b>
+            <span style="font-size:12px;font-weight:700;color:var(--t2)">${st.debtGuard ? "Ranked by cost, Debt Guard on" : "Ranked by rewards"}</span>
+          </div>
+          <div class="winner-card" data-winner="${win.c.id}">
+            <div class="ccard ${win.c.art}" style="height:158px;padding:16px 18px">
+              <div class="cc-top"><div><div class="cc-name">${win.c.name}</div><div class="cc-perk">${win.c.perk}</div></div><span class="cc-last">••${win.c.last4}</span></div>
+              <div class="cc-bal" style="margin-top:auto"><span class="cc-amt num" style="font-size:24px">${st.debtGuard ? (win.net >= 0 ? "+" : "−") + money(Math.abs(win.net)).slice(0) : "+" + money(win.rewards)}</span><span class="cc-of">${st.debtGuard ? "net on this purchase" : "back in rewards"}</span></div>
+            </div>
+            <div class="panel" style="margin-top:10px;border-radius:18px;display:flex;gap:10px;align-items:flex-start">
+              <span style="color:var(--accent);flex:none;margin-top:1px">${ICONS.shield}</span>
+              <p style="font-size:14px;font-weight:700;line-height:1.5">${winReason}</p>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-top:14px;padding:6px 16px">
+            ${ranked.map((r, i) => `
+            <div class="rank-row ${i === 0 ? "win" : ""} ${st.debtGuard && i > 0 ? "dim" : ""}">
+              <span class="rank-dot ${r.c.art}">${r.c.short}</span>
+              <div><div class="rn">${r.c.name}</div><div class="rs">${r.rate}% back · ${r.c.aprLabel}</div></div>
+              <div class="rv">
+                <div class="plus">+${money(r.rewards)}</div>
+                <div class="minus">${r.interest > 0 ? "−" + money(r.interest) + " interest" : "no interest"}</div>
+              </div>
+            </div>`).join("")}
+          </div>
+          <p style="font-size:12px;color:var(--t2);font-weight:600;line-height:1.5;margin-top:10px">Interest assumes the purchase rides a carried balance for 3 months — exactly what Debt Guard watches for.</p>
+          <button class="btn primary block" data-action="paynow" style="margin-top:14px">Pay ${money(st.amount)} with ${win.c.name}</button>
+        </div>
+        ${tabBar("pay")}`;
+      }
+
+      const FUNDING = {
+        credit: {
+          label: "Credit", rule: "Rule · Use the 0% intro APR while it lasts",
+          text: "Pay with credit on Zero Intro: it’s at 0% APR, so this purchase costs $0 in interest during the intro period — and it moves you $600 closer to the $200 sign-up bonus.",
+          extra: `<div class="panel" style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:700;color:var(--t2)">Routes to</span><b style="font-size:14.5px">Zero Intro ••3352</b></div>`
+        },
+        debit: {
+          label: "Debit", rule: "Rule · Don’t add to a balance you’re carrying",
+          text: "Pay with debit: you’re carrying a balance, so credit would charge interest today. Checking $380 minus $100 safety buffer leaves $280.",
+          extra: `<div class="panel" style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:700;color:var(--t2)">Checking after buffer</span><b class="num" style="font-size:16px">$280</b></div>`
+        },
+        plan: {
+          label: "4 Installments", rule: "Rule · Split big purchases, never revolve them",
+          text: "Split it into 4 payments of $150, no interest, as long as each one is on time. First payment today, then every two weeks.",
+          extra: `<div class="panel" style="padding:6px 16px">${[["Today · Oct 23", 1], ["Nov 6", 2], ["Nov 20", 3], ["Dec 4", 4]].map(([d, i]) => `
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0;${i < 4 ? "border-bottom:1px solid var(--border)" : ""}">
+              <span style="width:28px;height:28px;border-radius:50%;background:${i === 1 ? "var(--accent)" : "var(--chip-bg)"};color:${i === 1 ? "var(--accent-ink)" : "var(--t2)"};display:grid;place-items:center;font-size:12px;font-weight:800">${i}</span>
+              <b style="font-size:14px">${d}</b><span class="num" style="margin-left:auto;font-weight:800">$150.00</span>
+            </div>`).join("")}
+            <p style="font-size:12px;color:var(--t2);font-weight:600;padding:9px 0 11px">For a $600 purchase · $0 interest if paid on time</p></div>`
+        }
+      };
+      function oneCardScreen(st) {
+        const f = FUNDING[st.funding];
+        const keys = Object.keys(FUNDING);
+        const idx = keys.indexOf(st.funding);
+        return `
+        ${statusBar()}
+        <div class="screen ${st.proto ? "" : "static"}">
+          <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+            <div class="app-title" style="padding:0">One Card</div>
+            <span class="chip warn">Simulated</span>
+          </div>
+          <p class="app-sub">One physical card. Pilot quietly chooses how each purchase is funded — Visa Flexible style routing, simulated for this design.</p>
+
+          <div style="margin-top:16px">
+            <div class="ccard art-one" style="height:200px">
+              <div class="cc-top"><div><div class="cc-name">Pocket One</div><div class="cc-perk">Flexible funding</div></div><span class="cc-last">••0001</span></div>
+              <div class="cc-mid"><span class="cc-chip"></span><span class="cc-wave">${ICONS.wave}</span></div>
+              <div class="cc-foot" style="margin-top:auto"><span>Kirtan</span><span>One card · every purchase</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <span class="chip accent">${ICONS.check} Merchant category kept</span>
+            <span class="chip">Funding: ${f.label}</span>
+          </div>
+
+          <b style="display:block;font-size:14px;font-weight:800;margin:20px 0 9px">How this purchase is funded</b>
+          <div class="segctl" data-role="segctl">
+            <span class="pill" style="left:4px;width:calc((100% - 8px)/3);transform:translateX(${idx * 100}%)"></span>
+            ${keys.map(k => `<button data-action="funding" data-f="${k}" class="${st.funding === k ? "on" : ""}">${FUNDING[k].label}</button>`).join("")}
+          </div>
+
+          <div class="fade-up" data-funding-panel="${st.funding}">
+            <div class="panel" style="margin-top:14px">
+              <div style="display:flex;gap:9px;align-items:center;color:var(--accent)">${ICONS.shield}<b style="font-size:13px;letter-spacing:.02em">${f.rule}</b></div>
+              <p style="font-size:14.5px;font-weight:600;line-height:1.6;margin-top:9px">${f.text}</p>
+            </div>
+            <div style="margin-top:10px">${f.extra}</div>
+          </div>
+        </div>
+        ${tabBar("one")}`;
+      }
+
+      function alertsScreen(st) {
+        const a1 = st.alertDone
+          ? `<div class="alert-card done fade-up" style="display:flex;gap:12px;align-items:center">
+               <span style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none">${ICONS.check}</span>
+               <div><h3>Done.</h3><p style="margin-top:2px">Scheduled $640 to Aurum Gold on Oct 29.</p></div>
+             </div>`
+          : `<div class="alert-card" data-alert="due">
+               <div style="display:flex;gap:13px">
+                 <span class="a-ico" style="background:var(--warn-bg);color:var(--warn)">${ICONS.clock}</span>
+                 <div><h3>Aurum Gold is due Oct 30.</h3><p>Pay $640 on Oct 29, after payday? That clears the balance — $0 interest, no late fee.</p></div>
+               </div>
+               <div class="alert-actions">
+                 <button class="btn primary" data-action="approve">${st.approving ? ICONS.check + " Scheduling…" : "Approve"}</button>
+                 <button class="btn secondary" data-action="later">Later</button>
+               </div>
+             </div>`;
+        const a2 = st.trialState === "cancelled"
+          ? `<div class="alert-card done fade-up" style="display:flex;gap:12px;align-items:center">
+               <span style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none">${ICONS.check}</span>
+               <div><h3>Trial cancelled.</h3><p style="margin-top:2px">StreamBox won’t charge you $15.99 tomorrow.</p></div>
+             </div>`
+          : st.trialState === "kept"
+          ? `<div class="alert-card fade-up" style="display:flex;gap:12px;align-items:center">
+               <span class="a-ico" style="background:var(--chip-bg);color:var(--t2)">${ICONS.gift}</span>
+               <div><h3>Keeping StreamBox.</h3><p style="margin-top:2px">It converts tomorrow at $15.99/mo. Pilot will flag it again next month.</p></div>
+             </div>`
+          : `<div class="alert-card">
+               <div style="display:flex;gap:13px">
+                 <span class="a-ico" style="background:var(--danger-bg);color:var(--danger)">${ICONS.alert}</span>
+                 <div><h3>Free trial converts tomorrow: StreamBox $15.99</h3><p>You signed up 6 days ago and opened it once. After tomorrow it’s $15.99 every month.</p></div>
+               </div>
+               <div class="alert-actions">
+                 <button class="btn danger" data-action="cancel-trial">Cancel trial</button>
+                 <button class="btn secondary" data-action="keep-trial">Keep it</button>
+               </div>
+             </div>`;
+        const a3 = `
+             <div class="alert-card">
+               <div style="display:flex;gap:13px">
+                 <span class="a-ico" style="background:var(--accent-soft);color:var(--accent)">${ICONS.tag}</span>
+                 <div><h3>Is your $95 Voyager fee worth it?</h3><p>The fee posts Nov 15. So far this year Voyager earned you $41 — that’s $54 short of paying for itself.</p></div>
+               </div>
+               ${st.feeOpen ? `<div class="fade-up" style="margin-top:13px;display:grid;gap:8px">
+                 ${["Put Nov travel & dining on Voyager to close the $54 gap", "Ask Voyager for a retention offer before Nov 15", "Downgrade to a no-fee card and keep the history"].map(o => `<div style="display:flex;gap:9px;align-items:flex-start;font-size:13.5px;font-weight:600;line-height:1.45"><span style="color:var(--accent);flex:none;margin-top:1px">${ICONS.check}</span>${o}</div>`).join("")}
+               </div>` : ""}
+               <div class="alert-actions">
+                 <button class="btn primary" data-action="fee-options">${st.feeOpen ? "Hide options" : "See options"}</button>
+               </div>
+             </div>`;
+        return `
+        ${statusBar()}
+        <div class="screen ${st.proto ? "" : "static"}">
+          <div class="app-title">Alerts</div>
+          <p class="app-sub">Only the ones that can cost you money. Each one ends in a clear action.</p>
+          <div style="display:grid;gap:14px;margin-top:18px">${a1}${a2}${a3}</div>
+          ${st.laterNote ? `<p class="fade-up" style="font-size:13px;font-weight:700;color:var(--t2);margin-top:14px;text-align:center">Okay — Pilot will remind you again on Oct 28, two days before the due date.</p>` : ""}
+        </div>
+        ${tabBar("alerts")}`;
+      }
+
+      const COACH_ANSWERS = {
+        "How do late fees work?": "If a payment arrives after the due date, most cards charge a flat fee — often $29 to $40 — and it can cancel your grace period, so new purchases start charging interest right away. The fee isn’t the worst part; the lost grace period is. That’s why Pilot schedules payments the day before they’re due. This month that already saved you a $39 fee.",
+        "What if I only pay the minimum?": "The minimum looks small because it’s designed to keep the balance alive. On your Aurum Gold balance of $640, paying only the minimum takes 42 months and adds $391.85 in interest — more than half the balance again. Paying in full costs $0 in interest. Here’s the same balance, both ways:",
+        "Which card for groceries?": "Aurum Gold — 4% back on groceries beats everything else you carry. One condition: only while you pay it in full. If you’re carrying a balance on it, interest at 29.9% APR eats the rewards several times over, and Debt Guard will point you to Zero Intro instead.",
+      };
+      function compareCard() {
+        return `
+        <div class="compare" style="align-self:stretch;max-width:100%">
+          <div class="col good"><div class="ct">Pay in full</div><div class="cv">$0 interest</div><div class="cs">Done in one payment of $640 on Oct 30.</div></div>
+          <div class="col bad"><div class="ct">Minimum only</div><div class="cv num">$391.85</div><div class="cs">42 months of interest on the same $640.</div></div>
+        </div>`;
+      }
+      function coachScreen(st) {
+        const msgs = st.messages.map(m => {
+          if (m.from === "user") return `<div class="bubble user fade-up">${m.text}</div>`;
+          return `<div class="coach-row fade-up"><span class="coach-ava">${ICONS.spark}</span><div class="bubble coach">${m.text}</div></div>${m.compare ? `<div style="margin:2px 0 2px 39px">${compareCard()}</div>` : ""}`;
+        }).join("");
+        return `
+        ${statusBar()}
+        <div class="screen ${st.proto ? "" : "static"}">
+          <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+            <div class="app-title" style="padding:0">Ask Coach</div>
+            <span class="chip accent">${ICONS.spark} Claude-powered</span>
+          </div>
+          <p class="app-sub">Plain words, real numbers from your cards. No jargon, no judgment.</p>
+          <div class="chat-col" style="margin-top:18px">${msgs}</div>
+          <b style="display:block;font-size:13px;font-weight:800;color:var(--t2);margin:20px 0 9px">Try asking</b>
+          <div class="qchips">
+            ${Object.keys(COACH_ANSWERS).map(q => `<button data-action="ask" data-q="${q}">${q}</button>`).join("")}
+          </div>
+          <div class="chat-input">
+            <input data-role="coach-input" placeholder="Ask about your cards…" aria-label="Ask Coach" />
+            <button class="send-btn" data-action="send" aria-label="Send">${ICONS.send}</button>
+          </div>
+        </div>
+        ${tabBar("coach")}`;
+      }
+
+      function skeletonScreen() {
+        return `
+        ${statusBar()}
+        <div class="screen static" aria-label="Loading">
+          <div style="display:flex;gap:12px;align-items:center;padding-top:8px"><div class="skl" style="width:44px;height:44px;border-radius:50%"></div><div><div class="skl" style="width:110px;height:13px"></div><div class="skl" style="width:70px;height:16px;margin-top:7px"></div></div></div>
+          <div class="skl" style="height:150px;border-radius:24px;margin-top:18px"></div>
+          <div class="skl" style="width:130px;height:17px;margin-top:24px"></div>
+          <div class="skl" style="height:208px;border-radius:24px;margin-top:12px"></div>
+          <div class="skl" style="height:104px;border-radius:22px;margin-top:16px"></div>
+          <p style="text-align:center;font-size:12.5px;font-weight:700;color:var(--t2);margin-top:18px">Loading your wallet…</p>
+        </div>
+        ${tabBar("wallet")}`;
+      }
+      function errorScreen() {
+        return `
+        ${statusBar()}
+        <div class="screen static" style="display:flex;flex-direction:column">
+          <div class="state-center">
+            <span class="state-ico" style="background:var(--danger-bg);color:var(--danger)">${ICONS.alert}</span>
+            <h3 style="font-size:19px;font-weight:800">Can’t reach the server. Nothing was paid.</h3>
+            <p style="font-size:14px;color:var(--t2);font-weight:600;line-height:1.55;max-width:270px">Your cards, balances and scheduled payments are exactly as they were. Check your connection and try again.</p>
+            <button class="btn primary" data-action="retry" style="margin-top:10px;min-width:150px">Retry</button>
+          </div>
+        </div>
+        ${tabBar("wallet")}`;
+      }
+      function emptyScreen() {
+        return `
+        ${statusBar()}
+        <div class="screen static" style="display:flex;flex-direction:column">
+          <div class="app-head"><span class="avatar">K</span><div><div class="hi">Good afternoon</div><h2>Kirtan</h2></div></div>
+          <div class="state-center" style="padding-bottom:110px">
+            <span class="state-ico" style="background:var(--accent-soft);color:var(--accent)">${ICONS.wallet}</span>
+            <h3 style="font-size:19px;font-weight:800">No cards linked yet</h3>
+            <p style="font-size:14px;color:var(--t2);font-weight:600;line-height:1.55;max-width:270px">Link your first card and Pilot starts watching due dates, interest and fees for you.</p>
+            <button class="btn primary" data-action="link" style="margin-top:10px;min-width:170px">Link a card</button>
+            <span class="chip" style="margin-top:6px"><span class="dot"></span>Live data · Capital One Nessie</span>
+          </div>
+        </div>
+        ${tabBar("wallet")}`;
+      }
+
+      const SCREENS = { wallet: walletScreen, pay: payScreen, one: oneCardScreen, alerts: alertsScreen, coach: coachScreen };
+      function phoneHTML(screen, theme, st) {
+        st = Object.assign({}, defaultState(), st || {});
+        let body;
+        if (st.viewState === "loading") body = skeletonScreen();
+        else if (st.viewState === "error") body = errorScreen();
+        else if (st.viewState === "empty") body = emptyScreen();
+        else body = SCREENS[screen](st);
+        return `<div class="phone"><div class="phone-inner ph ${st.reduced ? "rm" : ""}" data-theme="${theme}"><div class="island"></div>${body}${st.toast ? `<div class="toast">${ICONS.check}<span>${st.toast}</span></div>` : ""}</div></div>`;
+      }
+      function defaultState() {
+        return {
+          proto: false, fanned: false, debtGuard: true, store: "Whole Foods", amount: 84.50,
+          funding: "debit", alertDone: false, approving: false, trialState: null, feeOpen: false,
+          laterNote: false, viewState: "live", toast: "", reduced: false,
+          messages: [
+            { from: "coach", text: "Hi Kirtan — I’m Coach. Ask me anything about your five cards and I’ll answer with your real numbers, in plain words." },
+            { from: "user", text: "What if I only pay the minimum?" },
+            { from: "coach", text: COACH_ANSWERS["What if I only pay the minimum?"], compare: true },
+          ],
+        };
+      }
+    </script>
+    <script>
+      /* =================== prototype =================== */
+      const P = Object.assign(defaultState(), { proto: true, tab: "wallet", theme: "light" });
+      const protoMount = document.getElementById("proto-mount");
+      let toastTimer = null, stateTimer = null;
+
+      const fmtCount = (v, dec) => "$" + v.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+      function fillBars(root) {
+        root.querySelectorAll("[data-fill]").forEach(el => {
+          requestAnimationFrame(() => requestAnimationFrame(() => { el.style.width = el.dataset.fill + "%"; }));
+        });
+      }
+      function runCounts(root, animate) {
+        root.querySelectorAll("[data-count]").forEach(el => {
+          const target = parseFloat(el.dataset.count);
+          const dec = el.dataset.count.includes(".") ? 2 : 0;
+          if (!animate || P.reduced) { el.textContent = fmtCount(target, dec); return; }
+          const t0 = performance.now(), dur = 350;
+          (function step(t) {
+            const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+            el.textContent = fmtCount(target * e, dec);
+            if (k < 1) requestAnimationFrame(step);
+          })(t0);
+        });
+      }
+      function renderProto() {
+        protoMount.innerHTML = phoneHTML(P.tab, P.theme, P);
+        fillBars(protoMount);
+        runCounts(protoMount, !P._counted);
+        if (P.tab === "wallet" && P.viewState === "live") P._counted = true;
+        if (P.tab === "coach") { const s = protoMount.querySelector(".screen"); if (s) s.scrollTop = s.scrollHeight; }
+      }
+      function showToast(msg) {
+        P.toast = msg; renderProto();
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { P.toast = ""; renderProto(); }, 3000);
+      }
+      function askCoach(q) {
+        q = (q || "").trim();
+        if (!q) return;
+        P.messages.push({ from: "user", text: q });
+        const known = COACH_ANSWERS[q];
+        if (known) P.messages.push({ from: "coach", text: known, compare: q.indexOf("minimum") > -1 });
+        else P.messages.push({ from: "coach", text: "Here’s the short version, with your numbers: the two things that actually cost students money are interest on a carried balance and late fees — rewards come third. Ask me how late fees work, what minimum-only payments cost, or which card to use for groceries, and I’ll run the real figures." });
+        renderProto();
+      }
+
+      protoMount.addEventListener("click", (e) => {
+        const stack = e.target.closest(".stack");
+        if (stack && P.viewState === "live" && P.tab === "wallet") {
+          const wrap = e.target.closest(".cardwrap");
+          if (P.fanned) {
+            if (wrap) {
+              protoMount.querySelectorAll(".cardwrap.lifted").forEach(w => { if (w !== wrap) w.classList.remove("lifted"); });
+              wrap.classList.toggle("lifted");
+            } else { P.fanned = false; renderProto(); }
+          } else { P.fanned = true; renderProto(); }
+          return;
+        }
+        const t = e.target.closest("[data-action]");
+        if (!t) return;
+        const a = t.dataset.action;
+        if (a === "tab") { P.tab = t.dataset.tab; renderProto(); }
+        else if (a === "bell") { P.tab = "alerts"; renderProto(); }
+        else if (a === "guard") {
+          P.debtGuard = !P.debtGuard;
+          if (P.tab === "pay") renderProto();
+          else t.setAttribute("aria-checked", P.debtGuard);
+        }
+        else if (a === "store") { P.store = t.dataset.store; renderProto(); }
+        else if (a === "paynow") { const w = rankCalc(P)[0]; showToast(`Paid ${money(P.amount)} with ${w.c.name} — simulated, nothing was charged.`); }
+        else if (a === "funding") { P.funding = t.dataset.f; renderProto(); }
+        else if (a === "approve") {
+          if (P.approving) return;
+          P.approving = true; renderProto();
+          setTimeout(() => { P.approving = false; P.alertDone = true; renderProto(); }, 700);
+        }
+        else if (a === "later") { P.laterNote = true; renderProto(); }
+        else if (a === "cancel-trial") { P.trialState = "cancelled"; renderProto(); }
+        else if (a === "keep-trial") { P.trialState = "kept"; renderProto(); }
+        else if (a === "fee-options") { P.feeOpen = !P.feeOpen; renderProto(); }
+        else if (a === "ask") askCoach(t.dataset.q);
+        else if (a === "send") { const inp = protoMount.querySelector("[data-role='coach-input']"); askCoach(inp ? inp.value : ""); }
+        else if (a === "retry") {
+          P.viewState = "loading"; syncSeg("ctl-state", "loading"); renderProto();
+          clearTimeout(stateTimer);
+          stateTimer = setTimeout(() => { P.viewState = "live"; syncSeg("ctl-state", "live"); showToast("Back online — your wallet is up to date."); }, 1000);
+        }
+        else if (a === "link") { P.viewState = "live"; syncSeg("ctl-state", "live"); showToast("Card linking is simulated in this design prototype."); }
+      });
+      protoMount.addEventListener("change", (e) => {
+        const role = e.target.dataset.role;
+        if (role === "amount") {
+          const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
+          if (!isNaN(v) && v >= 0) P.amount = Math.round(v * 100) / 100;
+          renderProto();
+        } else if (role === "store-search") {
+          const v = e.target.value.trim().toLowerCase();
+          const match = STORE_NAMES.find(s => s.toLowerCase() === v) || STORE_NAMES.find(s => s.toLowerCase().indexOf(v) === 0);
+          if (match) P.store = match;
+          renderProto();
+        }
+      });
+      protoMount.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        if (e.target.dataset.role === "coach-input") { e.preventDefault(); askCoach(e.target.value); }
+        else if (e.target.dataset.role) e.target.blur();
+      });
+
+      /* prototype controls */
+      function syncSeg(id, val) {
+        document.querySelectorAll("#" + id + " button").forEach(b => {
+          const v = b.dataset.ctheme || b.dataset.cstate || b.dataset.cmotion;
+          b.classList.toggle("on", v === val);
+        });
+      }
+      document.getElementById("ctl-theme").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-ctheme]"); if (!b) return;
+        P.theme = b.dataset.ctheme; syncSeg("ctl-theme", P.theme); renderProto();
+      });
+      document.getElementById("ctl-state").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-cstate]"); if (!b) return;
+        P.viewState = b.dataset.cstate; syncSeg("ctl-state", P.viewState); renderProto();
+      });
+      document.getElementById("ctl-motion").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-cmotion]"); if (!b) return;
+        P.reduced = b.dataset.cmotion === "off"; syncSeg("ctl-motion", b.dataset.cmotion); renderProto();
+      });
+
+      /* =================== gallery =================== */
+      const GALLERY = [
+        { id: "wallet", title: "1 · Wallet", desc: "Home base: money kept this month up top, the five-card stack (shown collapsed — it fans out on tap), the next due date, and Debt Guard with its one-line explainer." },
+        { id: "pay", title: "2 · Pay here", desc: "Store search, quick picks and an amount. Debt Guard is on here, so Zero Intro wins and the reason quotes Aurum Gold’s numbers. Ranked list shows rewards against interest for every card." },
+        { id: "one", title: "3 · One Card", desc: "One simulated flexible card. The funding control slides between Credit, Debit and 4 Installments; each choice shows the rule that picked it and why. Shown on Debit, the rule that fires while a balance is carried." },
+        { id: "alerts", title: "4 · Alerts", desc: "Only alerts that can cost money, each ending in a clear action: approve a scheduled payment, cancel a converting trial, or weigh a $95 fee against $41 earned." },
+        { id: "coach", title: "5 · Ask Coach", desc: "Claude-powered answers in plain words, with the payback comparison card: pay in full at $0 interest versus minimum-only at 42 months and $391.85." },
+      ];
+      document.getElementById("gallery-mount").innerHTML = GALLERY.map(g => `
+        <div class="gallery-row">
+          <h3>${g.title}</h3><p>${g.desc}</p>
+          <div class="phone-pair">
+            ${["light", "dark"].map(th => `
+            <div class="phone-cell">
+              <div class="stagewrap gal"><div class="stage no-pointer">${phoneHTML(g.id, th, { proto: false })}</div></div>
+              <span class="cap"><i style="background:${th === "light" ? "#d9a94f" : "#26343c"}"></i>${th} theme</span>
+            </div>`).join("")}
+          </div>
+        </div>`).join("");
+
+      /* =================== states row =================== */
+      const STATES = [
+        { viewState: "loading", theme: "light", cap: "Loading · skeleton" },
+        { viewState: "error", theme: "dark", cap: "Error · nothing was paid" },
+        { viewState: "empty", theme: "light", cap: "Empty · no cards linked" },
+      ];
+      document.getElementById("states-mount").innerHTML = STATES.map(s => `
+        <div class="phone-cell">
+          <div class="stagewrap gal"><div class="stage no-pointer">${phoneHTML("wallet", s.theme, { viewState: s.viewState })}</div></div>
+          <span class="cap">${s.cap}</span>
+        </div>`).join("");
+
+      /* =================== component sheet =================== */
+      function sheetHTML(theme) {
+        const aurum = CARDS[0], steady = CARDS[1];
+        return `
+        <div class="sheet ph" data-theme="${theme}">
+          <h3>${theme === "light" ? "Light theme" : "Dark theme"}</h3>
+          <div class="comp"><div class="cl">Credit card</div><div style="max-width:352px">${cardFace(aurum)}</div></div>
+          <div class="comp"><div class="cl">Chips</div><div class="rowflex">
+            <span class="chip"><span class="dot"></span>Live data · Nessie</span>
+            <span class="chip accent">Money kept</span>
+            <span class="chip warn">Above 30% used</span>
+            <span class="chip danger">Interest</span>
+          </div></div>
+          <div class="comp"><div class="cl">Usage bar · turns amber above 30%</div>
+            <div style="display:grid;gap:10px;max-width:352px">
+              <div><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--t2);margin-bottom:5px"><span>Aurum Gold</span><span>13%</span></div>${usageBar(13)}</div>
+              <div><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--t2);margin-bottom:5px"><span>Example card</span><span style="color:var(--warn)">34%</span></div>${usageBar(34)}</div>
+            </div>
+          </div>
+          <div class="comp"><div class="cl">Alert card</div>
+            <div class="alert-card" style="max-width:400px">
+              <div style="display:flex;gap:13px"><span class="a-ico" style="background:var(--warn-bg);color:var(--warn)">${ICONS.clock}</span>
+              <div><h3>Aurum Gold is due Oct 30.</h3><p>Pay $640 on Oct 29, after payday?</p></div></div>
+              <div class="alert-actions"><button class="btn primary">Approve</button><button class="btn secondary">Later</button></div>
+            </div>
+          </div>
+          <div class="comp"><div class="cl">Buttons</div><div class="rowflex">
+            <button class="btn primary">Primary</button><button class="btn secondary">Secondary</button>
+            <button class="btn danger">Cancel trial</button><button class="btn ghost">Ghost</button>
+          </div></div>
+          <div class="comp"><div class="cl">Switch · Debt Guard</div><div class="rowflex">
+            <button class="switch" role="switch" aria-checked="true" aria-label="Debt Guard on"></button><span style="font-size:13px;font-weight:700">On</span>
+            <button class="switch" role="switch" aria-checked="false" aria-label="Debt Guard off" style="margin-left:14px"></button><span style="font-size:13px;font-weight:700">Off</span>
+          </div></div>
+          <div class="comp"><div class="cl">Chat bubbles</div><div class="chat-col" style="max-width:400px">
+            <div class="coach-row"><span class="coach-ava">${ICONS.spark}</span><div class="bubble coach">Paying in full costs $0 in interest. That’s the whole game with a first card.</div></div>
+            <div class="bubble user">What if I only pay the minimum?</div>
+          </div></div>
+          <div class="comp"><div class="cl">Ranked row</div>
+            <div class="panel" style="max-width:400px;padding:6px 16px">
+              <div class="rank-row win"><span class="rank-dot ${aurum.art}">${aurum.short}</span><div><div class="rn">${aurum.name}</div><div class="rs">4% back · 29.9% APR</div></div><div class="rv"><div class="plus">+$3.38</div><div class="minus">−$6.32 interest</div></div></div>
+              <div class="rank-row"><span class="rank-dot ${steady.art}">${steady.short}</span><div><div class="rn">${steady.name}</div><div class="rs">2% back · 24.9% APR</div></div><div class="rv"><div class="plus">+$1.69</div><div class="minus">−$5.26 interest</div></div></div>
+            </div>
+          </div>
+        </div>`;
+      }
+      const sheetMount = document.getElementById("sheet-mount");
+      sheetMount.innerHTML = sheetHTML("light") + sheetHTML("dark");
+
+      /* =================== tokens =================== */
+      const COLOR_TOKENS = [
+        ["background", "#F2F4F1", "#0A0F0C"], ["surface", "#FFFFFF", "#141C17"], ["elevated surface", "#FFFFFF", "#1D2821"],
+        ["text primary", "#0D1F15", "#EDF4EF"], ["text secondary", "#43564B", "#A9BCB0"],
+        ["accent · emerald", "#0A6B4E", "#3ECF9B"], ["success", "#0A6B4E", "#3ECF9B"],
+        ["warning (text)", "#8A5A00", "#F0B45C"], ["warning (fill)", "#DD9425", "#E8A33D"],
+        ["danger · soft red", "#B33727", "#FF8D7E"], ["chip / track", "#E9EFE9", "#1E2A23"],
+      ];
+      const CARD_ART = [
+        ["Aurum Gold · warm gold metal", "linear-gradient(135deg,#f0cd7e,#bd8527)"],
+        ["Steady 2% · navy", "linear-gradient(135deg,#24467e,#0b1830)"],
+        ["Zero Intro · graphite", "linear-gradient(135deg,#43484f,#131518)"],
+        ["Spin 5% · orange gradient", "linear-gradient(135deg,#ffa05c,#d34e12)"],
+        ["Voyager · deep teal", "linear-gradient(135deg,#17685d,#052924)"],
+        ["Pocket One · charcoal emerald", "linear-gradient(135deg,#2a3b32,#131a16)"],
+      ];
+      const TYPE_ROWS = [
+        ["Display · 800 · 30/36", 27, 800, "Money kept: $73.40"],
+        ["Title · 800 · 22/27", 21, 800, "Pay here"],
+        ["Headline · 800 · 17/22", 16.5, 800, "Your cards"],
+        ["Body · 600 · 15/24", 14.5, 600, "Picks the card that costs you least."],
+        ["Small · 600 · 13/19", 13, 600, "Interest avoided this month"],
+        ["Caption · 700 · 12/16", 12, 700, "LIVE DATA · CAPITAL ONE NESSIE"],
+      ];
+      document.getElementById("tokens-mount").innerHTML = `
+        <div class="token-panel"><h3>Color tokens · light / dark</h3><div class="swatches">
+          ${COLOR_TOKENS.map(([n, l, d]) => `<div class="sw"><i style="background:${l}"></i><div><div class="sn">${n}</div><div class="sv">L ${l} · D ${d}</div></div><span class="duo"><i style="background:${d}"></i></span></div>`).join("")}
+        </div></div>
+        <div class="token-panel"><h3>Card art · same in both themes</h3><div class="swatches">
+          ${CARD_ART.map(([n, g]) => `<div class="sw"><i style="background:${g};width:56px"></i><div class="sn" style="font-size:13.5px">${n}</div></div>`).join("")}
+        </div>
+          <p style="font-size:13px;color:var(--page-ink2);font-weight:600;line-height:1.6;margin-top:14px">Each finish is a layered linear gradient with a diagonal sheen and an inset top highlight — flat CSS, no images, cheap to render in React Native with LinearGradient.</p>
+        </div>
+        <div class="token-panel"><h3>Type · Manrope, tabular numbers for money</h3>
+          ${TYPE_ROWS.map(([v, s, w, txt]) => `<div class="type-row"><span style="font-size:${s}px;font-weight:${w};letter-spacing:-0.01em;${v.indexOf("Display") === 0 || v.indexOf("Body") === 0 ? "font-variant-numeric:tabular-nums" : ""}">${txt}</span><span class="tv">${v}</span></div>`).join("")}
+        </div>
+        <div class="token-panel"><h3>Spacing &amp; radius</h3>
+          ${[4, 8, 12, 16, 20, 24, 32].map(v => `<div class="space-row"><span style="width:74px">space/${v}</span><span class="bar" style="width:${v * 3}px"></span><span class="sv2">${v}pt</span></div>`).join("")}
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:18px">
+            ${[[16, "radius/button · 16"], [20, "radius/panel · 20"], [24, "radius/card · 24"], [999, "radius/pill · 999"]].map(([r, l]) => `<div style="text-align:center"><div style="width:64px;height:44px;border:2px solid var(--page-accent);border-radius:${r}px;opacity:.85"></div><div style="font-size:11.5px;font-weight:700;color:var(--page-ink2);margin-top:6px">${l}</div></div>`).join("")}
+          </div>
+          <p style="font-size:13px;color:var(--page-ink2);font-weight:600;line-height:1.6;margin-top:14px">Touch targets are at least 44pt everywhere: tab buttons 48, switches 54 × 32 with a 44pt hit area, chips and quick picks 44.</p>
+        </div>`;
+
+      /* =================== motion notes =================== */
+      const MOTION = [
+        ["Card stack fan", "Tap the stacked cards on Wallet. Cards spring from a 42pt peek to a full list; detail panels fade in under each card.", "350ms", "Spring · damping 16, stiffness 170", "Animate each card’s <code>top</code> with <code>withSpring</code>, staggered 40ms; detail via <code>FadeIn.delay(i*40)</code>."],
+        ["Card lift", "Tap one card in the fanned list. It rises 5pt, scales to 1.015 and its shadow deepens — a soft haptic-style press everywhere else scales buttons to 0.96.", "250ms", "Ease-out", "<code>withSpring(scale)</code> + shadow opacity; fire <code>Haptics.impactAsync(Light)</code> on press."],
+        ["Winning card rise", "Pay result appears, or Debt Guard flips. The winner rises 26pt out of the stack and settles; the other rows dim to 45%.", "350ms", "Spring · overshoot 1.3", "<code>entering={SlideInDown.springify()}</code> on the winner; <code>withTiming(opacity)</code> on siblings."],
+        ["Money count-up", "Wallet appears. “Money kept” and its three rows count from $0 to their real values.", "350ms", "Ease-out cubic", "<code>useSharedValue</code> + <code>withTiming</code>; format currency inside <code>useAnimatedProps</code> / a text worklet."],
+        ["Usage bar fill", "Wallet mounts and when the stack fans out. Bars sweep to their percentage; the fill turns amber past 30%.", "350ms", "Ease-out, 60ms stagger", "<code>withTiming(width %)</code>; swap fill color with <code>interpolateColor</code> on the same progress value."],
+        ["Debt Guard morph", "Toggle the switch on Wallet or Pay. The track morphs to emerald, the knob springs across, and the Pay pick re-animates to the new winner.", "280ms", "Spring · damping 20, stiffness 260", "<code>interpolateColor</code> for the track, <code>withSpring</code> for the knob; recompute pick, then replay the rise."],
+        ["Funding pill slide", "Tap Credit / Debit / 4 Installments on One Card. The pill glides under the label; the rule panel cross-fades to the new reason.", "320ms", "Spring · damping 22, stiffness 240", "One shared <code>translateX</code> value driving the pill; panel content keyed by segment with <code>FadeIn/FadeOut</code> at 180ms."],
+        ["Approve → check → settle", "Tap Approve on an alert. The label becomes a check, holds briefly, then the card settles into its green “Done” state.", "180 + 300ms", "Ease-out, then spring", "Swap label under <code>withTiming(scale)</code>; animate the card’s background with <code>interpolateColor</code>; layout shift via <code>Layout.springify()</code>."],
+        ["Skeleton shimmer", "Any screen loading. A light sweep crosses the placeholder blocks, which mirror the real layout exactly. As a continuous ambient loop it’s the one exemption from the 150–350ms interaction range.", "1200ms loop", "Linear", "<code>withRepeat(withTiming(translateX), -1)</code> on a gradient layer masked by the skeleton blocks."],
+        ["Tab switch", "Tap a tab. The new screen fades in with an 8pt rise; the active icon morphs to emerald.", "200ms", "Ease-out", "<code>FadeInUp.duration(200)</code> on screen mount; icon color via <code>interpolateColor</code> on focus state."],
+      ];
+      document.getElementById("motion-mount").innerHTML = MOTION.map(([n, d, dur, ez, rn]) => `
+        <div class="motion-item">
+          <h3>${n}</h3>
+          <p>${d}<br />${rn}</p>
+          <div class="meta"><b>${dur}</b><span>duration</span></div>
+          <div class="meta"><b style="font-size:13.5px">${ez}</b><span>easing</span></div>
+        </div>`).join("") + `
+        <p style="font-size:13.5px;color:var(--page-ink2);font-weight:600;line-height:1.6;margin-top:6px">Reduced motion: read <code style="font-family:ui-monospace,Menlo,monospace">useReducedMotion()</code> once at the root — springs become 120ms opacity fades, the count-up sets final values instantly, and the shimmer stops. Try it with the “Reduced” toggle above the prototype.</p>`;
+
+      /* =================== init =================== */
+      renderProto();
+      fillBars(document.getElementById("gallery-mount"));
+      fillBars(document.getElementById("sheet-mount"));
+      runCounts(document.getElementById("gallery-mount"), false);
+    </script>
+  </body>
+</html>

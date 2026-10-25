@@ -28,12 +28,20 @@ import PaybackComparison from "../../components/PaybackComparison";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type ConvTurn = { role: "user" | "assistant"; content: string };
+
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   source?: string;
   isTyping?: boolean;
+}
+
+interface SendError {
+  message: string;
+  question: string;
+  history: ConvTurn[];
 }
 
 const SUGGESTIONS = [
@@ -143,6 +151,27 @@ function MessageBubble({ item }: { item: Message }) {
   );
 }
 
+// ── Error banner ──────────────────────────────────────────────────────────────
+
+function ErrorBanner({ error, onRetry }: { error: SendError; onRetry: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.errorBanner, { backgroundColor: colors.warnFill, borderColor: colors.warn }]}>
+      <Ionicons name="alert-circle-outline" size={16} color={colors.warn} />
+      <Text style={[styles.errorMsg, { color: colors.warn }]} numberOfLines={3}>
+        {error.message}
+      </Text>
+      <Pressable
+        onPress={onRetry}
+        accessibilityLabel="Retry"
+        style={[styles.retryBtn, { backgroundColor: colors.warn }]}
+      >
+        <Text style={[styles.retryText, { color: "#fff" }]}>Retry</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // ── Coach screen ──────────────────────────────────────────────────────────────
 
 export default function CoachScreen() {
@@ -151,10 +180,10 @@ export default function CoachScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sendError, setSendError] = useState<SendError | null>(null);
   const [payback, setPayback] = useState<PaybackResponse | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
 
-  // Fetch payback data for contextual widget
   useEffect(() => {
     api.payback("aurum").then(setPayback).catch(() => {});
   }, []);
@@ -162,42 +191,64 @@ export default function CoachScreen() {
   const scrollToEnd = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
 
-  const send = async (question: string) => {
-    const q = question.trim();
-    if (!q || loading) return;
-    setInput("");
-
-    const history = messages
-      .filter((m) => !m.isTyping)
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    const userMsg: Message = { id: nextId(), role: "user", content: q };
-    const typingMsg: Message = { id: TYPING_ID, role: "assistant", content: "", isTyping: true };
-
-    setMessages((prev) => [...prev, userMsg, typingMsg]);
+  const sendRequest = async (question: string, history: ConvTurn[]) => {
     setLoading(true);
+    setSendError(null);
+
+    const typingMsg: Message = { id: TYPING_ID, role: "assistant", content: "", isTyping: true };
+    setMessages((prev) => [...prev, typingMsg]);
     scrollToEnd();
 
     try {
-      const res = await api.coach(q, history);
+      const res = await api.coach(question, history);
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== TYPING_ID),
         { id: nextId(), role: "assistant", content: res.answer, source: res.source },
       ]);
     } catch (e: unknown) {
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== TYPING_ID),
-        {
-          id: nextId(),
-          role: "assistant",
-          content: e instanceof Error ? e.message : "Couldn't reach the server.",
-          source: "offline (network error)",
-        },
-      ]);
+      // Remove typing indicator; show error banner with retry capability
+      setMessages((prev) => prev.filter((m) => m.id !== TYPING_ID));
+      setSendError({
+        message: e instanceof Error ? e.message : "Couldn't reach the server.",
+        question,
+        history,
+      });
     } finally {
       setLoading(false);
       scrollToEnd();
     }
+  };
+
+  const send = async (question: string) => {
+    const q = question.trim();
+    if (!q || loading) return;
+    setInput("");
+    setSendError(null);
+
+    // Build history from successful exchanges only — no typing indicators, no error entries.
+    // Slice to only {role, content}; first entry is always "user" since user always goes first.
+    const history: ConvTurn[] = messages
+      .filter((m) => !m.isTyping)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const userMsg: Message = { id: nextId(), role: "user", content: q };
+    setMessages((prev) => [...prev, userMsg]);
+
+    await sendRequest(q, history);
+  };
+
+  const retry = async () => {
+    if (!sendError || loading) return;
+    // Remove the user message that failed (last in list) so it re-adds cleanly
+    setMessages((prev) => {
+      const last = [...prev].reverse().find((m) => m.role === "user");
+      if (!last) return prev;
+      return prev.filter((m) => m.id !== last.id);
+    });
+    const { question, history } = sendError;
+    const userMsg: Message = { id: nextId(), role: "user", content: question };
+    setMessages((prev) => [...prev, userMsg]);
+    await sendRequest(question, history);
   };
 
   const hasMessages = messages.length > 0;
@@ -214,7 +265,6 @@ export default function CoachScreen() {
             renderItem={() => null}
             ListHeaderComponent={
               <View style={styles.emptyWrap}>
-                {/* Avatar */}
                 <View style={[styles.emptyAvatar, { backgroundColor: colors.coachFill }]}>
                   <Ionicons name="chatbubble-ellipses" size={30} color={colors.coach} />
                 </View>
@@ -223,7 +273,6 @@ export default function CoachScreen() {
                   Ask me anything about your cards, interest, or how to optimise your spending.
                 </Text>
 
-                {/* Suggestion chips */}
                 <View style={styles.chips}>
                   {SUGGESTIONS.map((s) => (
                     <StoreChip
@@ -235,7 +284,6 @@ export default function CoachScreen() {
                   ))}
                 </View>
 
-                {/* Payback insight */}
                 {payback && (
                   <View style={{ width: "100%" }}>
                     <Text style={[styles.sectionLabel, { color: colors.muted }]}>
@@ -258,6 +306,11 @@ export default function CoachScreen() {
             onContentSizeChange={scrollToEnd}
             keyboardShouldPersistTaps="handled"
           />
+        )}
+
+        {/* Error banner — shown above input when last request failed */}
+        {sendError && (
+          <ErrorBanner error={sendError} onRetry={retry} />
         )}
 
         {/* Input bar */}
@@ -375,6 +428,28 @@ const styles = StyleSheet.create({
   // Typing dots
   dotsRow: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 2, paddingVertical: 4 },
   dot: { width: 7, height: 7, borderRadius: 3.5, opacity: 0.6 },
+
+  // Error banner
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  errorMsg: { flex: 1, fontSize: font.label, fontFamily: type.uiMedium, lineHeight: 18 },
+  retryBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+    minHeight: 32,
+    justifyContent: "center",
+  },
+  retryText: { fontSize: font.label, fontFamily: type.uiSemi },
 
   // Input bar
   inputRow: {

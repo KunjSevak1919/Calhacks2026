@@ -153,12 +153,16 @@ export interface VfcAuthorizeResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = 5_000;
+const COACH_TIMEOUT_MS = 30_000;
 
-/** fetch() wrapped with a 5-second AbortController so requests never hang. */
-function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = TIMEOUT_MS
+): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(() =>
     clearTimeout(timer)
   );
@@ -169,27 +173,37 @@ async function get<T>(path: string): Promise<T> {
   try {
     res = await fetchWithTimeout(`${SERVER_URL}${path}`);
   } catch (e) {
-    const msg = e instanceof Error && e.name === "AbortError"
-      ? "Can't reach the server"
-      : String(e);
+    const msg =
+      e instanceof Error && e.name === "AbortError"
+        ? "Can't reach the server"
+        : String(e);
     throw new Error(msg);
   }
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(
+  path: string,
+  body: unknown,
+  timeoutMs = TIMEOUT_MS
+): Promise<T> {
   let res: Response;
   try {
-    res = await fetchWithTimeout(`${SERVER_URL}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    res = await fetchWithTimeout(
+      `${SERVER_URL}${path}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      timeoutMs
+    );
   } catch (e) {
-    const msg = e instanceof Error && e.name === "AbortError"
-      ? "Can't reach the server"
-      : String(e);
+    const msg =
+      e instanceof Error && e.name === "AbortError"
+        ? `Request timed out after ${Math.round(timeoutMs / 1000)}s`
+        : String(e);
     throw new Error(msg);
   }
   if (!res.ok) {
@@ -217,8 +231,11 @@ export const api = {
   dismiss: (id: string) =>
     post<{ id: string; message: string }>(`/api/notifications/${id}/dismiss`, {}),
 
-  coach: (question: string, history?: Array<{ role: string; content: string }>) =>
-    post<CoachResponse>("/api/coach", { question, history }),
+  coach: (
+    question: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>
+  ) =>
+    post<CoachResponse>("/api/coach", { question, history }, COACH_TIMEOUT_MS),
 
   settings: () => get<{ debt_guard: boolean }>("/api/settings"),
 
