@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View,
-  Text,
+  Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   FadeInDown,
   interpolateColor,
@@ -21,62 +22,34 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   api,
-  VfcAuthorizeResponse,
-  VfcRule,
+  type VfcAuthorizeResponse,
+  type VfcRule,
 } from "../../api";
+import { useTheme } from "../../ThemeContext";
+import { font, type, spacing, radius, shadow } from "../../theme";
+import DebtGuardSwitch from "../../components/DebtGuardSwitch";
 import Skeleton from "../../components/Skeleton";
-import PressScale from "../../components/PressScale";
-import { usd } from "../../format";
-import { lightTap } from "../../haptics";
-import { colors, spacing, radius, font, type, shadow, hit } from "../../theme";
 
-// ── Scenario definitions ──────────────────────────────────────────────────
+// ── Scenario definitions ──────────────────────────────────────────────────────
 
 const SCENARIOS = [
-  { label: "Whole Foods", amount: 84.5,  mcc: 5411, amountLabel: "$84.50" },
-  { label: "Shell",       amount: 40,    mcc: 5541, amountLabel: "$40" },
-  { label: "Best Buy",    amount: 450,   mcc: 5732, amountLabel: "$450" },
+  { label: "Whole Foods", amount: 84.5, mcc: 5411, amountLabel: "$84.50" },
+  { label: "Shell", amount: 40, mcc: 5541, amountLabel: "$40" },
+  { label: "Best Buy", amount: 450, mcc: 5732, amountLabel: "$450" },
 ] as const;
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── VFC card with animated funding chip ───────────────────────────────────────
 
-function fundingAccent(funding: VfcAuthorizeResponse["funding"] | null): string {
-  if (funding === "credit") return colors.good;
-  if (funding === "debit") return colors.coach;
-  if (funding === "installments") return colors.warn;
-  return colors.muted;
-}
-
-function fundingFill(funding: VfcAuthorizeResponse["funding"] | null): string {
-  if (funding === "credit") return colors.goodFill;
-  if (funding === "debit") return colors.coachFill;
-  if (funding === "installments") return colors.warnFill;
-  return colors.surfaceSubtle;
-}
-
-function fundingLabel(result: VfcAuthorizeResponse): string {
-  if (result.funding === "credit") return `Credit · ${result.card_name ?? "card"}`;
-  if (result.funding === "debit") return "Debit · Checking";
-  return "Pay in 4";
-}
-
-function formatDate(iso: string): string {
-  const [, m, d] = iso.split("-");
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
-}
-
-// ── Funding chip (Reanimated spring on change) ────────────────────────────
-
-function FundingChip({ result }: { result: VfcAuthorizeResponse | null }) {
-  const reduce = useReducedMotion();
+function FundingBadge({ result }: { result: VfcAuthorizeResponse | null }) {
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
   const translateY = useSharedValue(0);
   const prevFunding = useRef<string | null>(null);
 
   useEffect(() => {
     if (!result) return;
-    if (prevFunding.current !== result.funding && !reduce) {
+    if (prevFunding.current !== result.funding && !reduceMotion) {
       scale.value = withSequence(
         withTiming(0.84, { duration: 80 }),
         withSpring(1, { damping: 14, stiffness: 280, mass: 0.5 })
@@ -93,33 +66,63 @@ function FundingChip({ result }: { result: VfcAuthorizeResponse | null }) {
     transform: [{ scale: scale.value }, { translateY: translateY.value }],
   }));
 
-  const accent = fundingAccent(result?.funding ?? null);
-  const fill = fundingFill(result?.funding ?? null);
+  const accent =
+    result?.funding === "credit"
+      ? colors.good
+      : result?.funding === "debit"
+      ? colors.coach
+      : result?.funding === "installments"
+      ? colors.warn
+      : "rgba(255,255,255,0.5)";
+
+  const fill =
+    result?.funding === "credit"
+      ? colors.goodFill + "CC"
+      : result?.funding === "debit"
+      ? colors.coachFill + "CC"
+      : result?.funding === "installments"
+      ? colors.warnFill + "CC"
+      : "rgba(255,255,255,0.08)";
+
+  const label = result
+    ? result.funding === "credit"
+      ? `Credit · ${result.card_name ?? "card"}`
+      : result.funding === "debit"
+      ? "Debit · Checking"
+      : "Pay in 4"
+    : "Tap a scenario below";
 
   return (
     <Animated.View
       style={[
-        styles.fundingChip,
+        styles.fundingBadge,
         { backgroundColor: fill, borderColor: accent + "55" },
         anim,
       ]}
     >
       <View style={[styles.fundingDot, { backgroundColor: accent }]} />
-      <Text style={[styles.fundingText, { color: accent }]}>
-        {result ? fundingLabel(result) : "Tap a scenario below"}
+      <Text style={[styles.fundingText, { color: result ? accent : "rgba(255,255,255,0.5)" }]}>
+        {label}
       </Text>
     </Animated.View>
   );
 }
 
-// ── Rule card (highlights with interpolated color when matched) ───────────
+// ── Decision rule card ────────────────────────────────────────────────────────
 
 function RuleCard({ rule, matched }: { rule: VfcRule; matched: boolean }) {
-  const reduce = useReducedMotion();
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const progress = useSharedValue(matched ? 1 : 0);
 
+  // Capture colors as local variables for worklet
+  const borderIdle = colors.border;
+  const borderActive = colors.good + "88";
+  const bgIdle = colors.surface;
+  const bgActive = colors.goodFill;
+
   useEffect(() => {
-    if (reduce) {
+    if (reduceMotion) {
       progress.value = matched ? 1 : 0;
       return;
     }
@@ -135,120 +138,118 @@ function RuleCard({ rule, matched }: { rule: VfcRule; matched: boolean }) {
   }, [matched]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const anim = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(progress.value, [0, 1], [colors.border, colors.good + "88"]),
-    backgroundColor: interpolateColor(progress.value, [0, 1], [colors.surface, colors.goodFill]),
+    borderColor: interpolateColor(progress.value, [0, 1], [borderIdle, borderActive]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], [bgIdle, bgActive]),
   }));
 
   return (
     <Animated.View style={[styles.ruleCard, anim]}>
       {matched && (
-        <View style={styles.ruleMatchBadge}>
-          <Ionicons name="flash" size={11} color={colors.onPrimary} />
+        <View style={[styles.ruleMatchBadge, { backgroundColor: colors.good }]}>
+          <Ionicons name="flash" size={11} color="#fff" />
           <Text style={styles.ruleMatchText}>Applied</Text>
         </View>
       )}
       <View style={styles.ruleRow}>
-        <Text style={styles.ruleRowLabel}>When</Text>
-        <Text style={styles.ruleRowValue}>{rule.when}</Text>
+        <Text style={[styles.ruleRowLabel, { color: colors.muted }]}>When</Text>
+        <Text style={[styles.ruleRowValue, { color: colors.text }]}>{rule.when}</Text>
       </View>
       <View style={[styles.ruleRow, { marginTop: spacing.sm }]}>
-        <Text style={styles.ruleRowLabel}>Then</Text>
-        <Text style={[styles.ruleRowValue, matched && { color: colors.good }]}>
+        <Text style={[styles.ruleRowLabel, { color: colors.muted }]}>Then</Text>
+        <Text style={[styles.ruleRowValue, { color: matched ? colors.good : colors.text }]}>
           {rule.then}
         </Text>
       </View>
       <View style={[styles.ruleRow, { marginTop: spacing.sm }]}>
-        <Text style={styles.ruleRowLabel}>Why</Text>
+        <Text style={[styles.ruleRowLabel, { color: colors.muted }]}>Why</Text>
         <Text style={[styles.ruleRowValue, { color: colors.muted }]}>{rule.why}</Text>
       </View>
     </Animated.View>
   );
 }
 
-// ── Installment schedule (rows enter staggered) ───────────────────────────
+// ── Installment schedule ──────────────────────────────────────────────────────
+
+function formatDate(iso: string): string {
+  const [, m, d] = iso.split("-");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
+}
 
 function InstallmentSchedule({ result }: { result: VfcAuthorizeResponse }) {
-  const reduce = useReducedMotion();
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   if (!result.installments) return null;
 
   return (
-    <View style={styles.scheduleBlock}>
-      <Text style={styles.scheduleTitle}>Payment schedule</Text>
+    <View style={[styles.scheduleBlock, { backgroundColor: colors.elevated, borderColor: colors.border }]}>
+      <Text style={[styles.scheduleTitle, { color: colors.text }]}>Payment schedule</Text>
       {result.installments.schedule.map((item, i) => (
         <Animated.View
           key={i}
-          entering={reduce ? undefined : FadeInDown.delay(i * 70).duration(220)}
-          style={styles.scheduleRow}
+          entering={reduceMotion ? undefined : FadeInDown.delay(i * 70).duration(220)}
+          style={[styles.scheduleRow, { borderTopColor: colors.border }]}
         >
-          <Text style={styles.scheduleNum}>{i + 1}</Text>
-          <Text style={styles.scheduleDate}>{formatDate(item.date)}</Text>
-          <Text style={styles.scheduleAmount}>{usd(item.amount)}</Text>
+          <Text style={[styles.scheduleNum, { color: colors.muted }]}>{i + 1}</Text>
+          <Text style={[styles.scheduleDate, { color: colors.textSecondary }]}>{formatDate(item.date)}</Text>
+          <Text style={[styles.scheduleAmount, { color: colors.text, fontFamily: type.monoSemi }]}>
+            ${item.amount.toFixed(2)}
+          </Text>
         </Animated.View>
       ))}
-      <View style={styles.scheduleDivider} />
-      <View style={styles.scheduleRow}>
+      <View style={[styles.scheduleRow, { borderTopColor: colors.border }]}>
         <Text style={[styles.scheduleNum, { color: "transparent" }]}>—</Text>
         <Text style={[styles.scheduleDate, { color: colors.muted }]}>Total</Text>
         <Text style={[styles.scheduleAmount, { color: colors.text, fontFamily: type.monoBold }]}>
-          {usd(result.installments.each * result.installments.count)}
+          ${(result.installments.each * result.installments.count).toFixed(2)}
         </Text>
       </View>
     </View>
   );
 }
 
-// ── Simulation screen ─────────────────────────────────────────────────────
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SimulationScreen() {
-  const reduce = useReducedMotion();
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+
   const [debtGuard, setDebtGuard] = useState(false);
   const [result, setResult] = useState<VfcAuthorizeResponse | null>(null);
   const [rules, setRules] = useState<VfcRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeScenario, setActiveScenario] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // ── Load on focus ─────────────────────────────────────────────────────
+  const [guardLoading, setGuardLoading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      async function load() {
-        try {
-          const [settingsRes, rulesRes] = await Promise.all([
-            api.settings(),
-            api.vfcRules(),
-          ]);
-          if (!cancelled) {
-            setDebtGuard(settingsRes.debt_guard);
-            setRules(rulesRes.rules);
-          }
-        } catch {
-          //
-        }
-      }
-      load();
+      Promise.all([api.settings(), api.vfcRules()])
+        .then(([s, r]) => {
+          if (cancelled) return;
+          setDebtGuard(s.debt_guard);
+          setRules(r.rules);
+        })
+        .catch(() => {});
       return () => { cancelled = true; };
     }, [])
   );
 
-  // ── Debt Guard toggle ─────────────────────────────────────────────────
-
-  const handleDebtGuard = async (val: boolean) => {
-    lightTap();
+  const handleDebtGuard = useCallback(async (val: boolean) => {
+    setGuardLoading(true);
     setDebtGuard(val);
     try {
       await api.setSettings(val);
     } catch {
       setDebtGuard(!val);
+    } finally {
+      setGuardLoading(false);
     }
-  };
+  }, []);
 
-  // ── Authorize ─────────────────────────────────────────────────────────
-
-  const handleScenario = async (idx: number) => {
+  const handleScenario = useCallback(async (idx: number) => {
     if (loading) return;
-    lightTap();
     const s = SCENARIOS[idx];
     setActiveScenario(idx);
     setLoading(true);
@@ -261,124 +262,110 @@ export default function SimulationScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────
+  }, [loading]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={["top"]}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Header */}
-        <Text style={styles.title}>Simulation</Text>
-        <Text style={styles.subtitle}>
-          Virtual Funding Controller — how Pocket Pilot routes each purchase.
-        </Text>
-
-        {/* Pocket Pilot card */}
-        <View style={styles.visaCard}>
-          <View style={styles.visaTop}>
-            <View style={styles.visaChip}>
-              <Ionicons name="hardware-chip-outline" size={20} color={colors.onPrimary} style={{ opacity: 0.6 }} />
+        {/* VFC card — gradient with animated funding badge */}
+        <LinearGradient
+          colors={["#111827", "#1E3A5F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.vfcCard}
+        >
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.15)" }]} pointerEvents="none" />
+          <View style={styles.vfcCardSheen} pointerEvents="none" />
+          <View style={styles.vfcTop}>
+            <View style={styles.vfcChip}>
+              <Ionicons name="hardware-chip-outline" size={20} color="#fff" style={{ opacity: 0.6 }} />
             </View>
-            <Text style={styles.visaSimBadge}>SIMULATION</Text>
+            <Text style={styles.vfcSimBadge}>SIMULATION</Text>
           </View>
-          <Text style={styles.visaNumber}>•••• •••• •••• 0042</Text>
-          <View style={styles.visaBottom}>
+          <Text style={styles.vfcNumber}>•••• •••• •••• 0042</Text>
+          <View style={styles.vfcBottom}>
             <View>
-              <Text style={styles.visaFieldLabel}>CARD HOLDER</Text>
-              <Text style={styles.visaName}>Pocket Pilot</Text>
+              <Text style={styles.vfcFieldLabel}>CARD HOLDER</Text>
+              <Text style={styles.vfcName}>Pocket Pilot</Text>
             </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={styles.visaDesc}>
-                Pocket Pilot · Visa Flexible Credential (simulated)
-              </Text>
-            </View>
-          </View>
-          <FundingChip result={result} />
-        </View>
-
-        {/* Debt Guard */}
-        <View style={styles.guardRow}>
-          <View style={[styles.guardIconWrap, debtGuard ? styles.guardIconOn : styles.guardIconOff]}>
-            <Ionicons
-              name={debtGuard ? "shield-checkmark" : "shield-outline"}
-              size={17}
-              color={debtGuard ? colors.good : colors.muted}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.guardTitle}>Debt Guard</Text>
-            <Text style={styles.guardStatus} numberOfLines={1}>
-              {debtGuard
-                ? "On · credit blocked while carrying a balance"
-                : "Off · credit allowed (pay-in-full assumed)"}
+            <Text style={styles.vfcDesc}>
+              Virtual Funding Controller
             </Text>
           </View>
-          <View style={styles.switchHit}>
-            <Switch
-              value={debtGuard}
-              onValueChange={handleDebtGuard}
-              trackColor={{ false: colors.border, true: colors.good }}
-              thumbColor={colors.surface}
-              ios_backgroundColor={colors.border}
-              accessibilityLabel="Debt Guard"
-            />
-          </View>
-        </View>
+          <FundingBadge result={result} />
+        </LinearGradient>
+
+        {/* Debt Guard */}
+        <DebtGuardSwitch
+          value={debtGuard}
+          onValueChange={handleDebtGuard}
+          explainer={
+            debtGuard
+              ? "Credit blocked while carrying a balance — routing to debit or installments."
+              : "Pay-in-full mode — credit allowed for max rewards."
+          }
+        />
 
         {/* Scenarios */}
-        <Text style={styles.sectionLabel}>Run a scenario</Text>
+        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Run a scenario</Text>
         <View style={styles.scenarioRow}>
           {SCENARIOS.map((s, idx) => {
             const active = activeScenario === idx;
             const isLoading = loading && active;
             return (
-              <PressScale
+              <Pressable
                 key={s.label}
                 onPress={() => handleScenario(idx)}
                 disabled={loading}
                 accessibilityLabel={`${s.label} ${s.amountLabel}`}
-                style={[styles.scenarioBtn, active && styles.scenarioBtnActive]}
+                style={({ pressed }) => [
+                  styles.scenarioBtn,
+                  {
+                    backgroundColor: active ? colors.primary : colors.surface,
+                    borderColor: active ? "transparent" : colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
               >
                 {isLoading ? (
-                  <Skeleton height={14} width={40} r={6} />
+                  <Skeleton height={14} width={40} borderRadius={6} />
                 ) : (
                   <>
-                    <Text style={[styles.scenarioBtnLabel, active && styles.scenarioBtnLabelActive]}>
+                    <Text style={[styles.scenarioBtnLabel, { color: active ? colors.onPrimary : colors.text }]}>
                       {s.label}
                     </Text>
-                    <Text style={[styles.scenarioBtnAmount, active && styles.scenarioBtnAmountActive]}>
+                    <Text style={[styles.scenarioBtnAmount, { color: active ? colors.onPrimary : colors.muted, opacity: 0.8 }]}>
                       {s.amountLabel}
                     </Text>
                   </>
                 )}
-              </PressScale>
+              </Pressable>
             );
           })}
         </View>
 
         {/* Error */}
         {error && (
-          <View style={styles.errorBox}>
+          <View style={[styles.errorBox, { backgroundColor: colors.warnFill, borderColor: colors.warn + "44" }]}>
             <Ionicons name="warning" size={14} color={colors.warn} />
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={[styles.errorText, { color: colors.warn }]}>{error}</Text>
           </View>
         )}
 
         {/* Result */}
         {result && !loading && (
           <Animated.View
-            entering={reduce ? undefined : FadeInDown.duration(260).springify()}
-            style={styles.resultCard}
+            entering={reduceMotion ? undefined : FadeInDown.duration(260).springify()}
+            style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
-            <Text style={styles.reasonText}>{result.reason}</Text>
+            <Text style={[styles.reasonText, { color: colors.text }]}>{result.reason}</Text>
 
             {result.mcc_preserved && (
               <View style={styles.mccRow}>
                 <Ionicons name="checkmark-circle" size={14} color={colors.good} />
-                <Text style={styles.mccText}>
-                  MCC {result.mcc} kept, category bonus kept
+                <Text style={[styles.mccText, { color: colors.good }]}>
+                  MCC {result.mcc} kept — category bonus preserved
                 </Text>
               </View>
             )}
@@ -389,27 +376,24 @@ export default function SimulationScreen() {
           </Animated.View>
         )}
 
-        {/* Rules */}
-        <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>Decision rules</Text>
+        {/* Decision rules */}
+        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Decision rules</Text>
         {rules.length === 0 ? (
           <View style={{ gap: spacing.md }}>
             {[110, 100, 110, 100].map((h, i) => (
-              <Skeleton key={i} height={h} r={radius.xl} />
+              <Skeleton key={i} height={h} borderRadius={radius.xl} />
             ))}
           </View>
         ) : (
           <View style={{ gap: spacing.md }}>
-            {rules.map((rule, i) => {
-              const matched = result?.rule_id === rule.id;
-              return (
-                <Animated.View
-                  key={rule.id}
-                  entering={reduce ? undefined : FadeInDown.delay(i * 60).duration(260)}
-                >
-                  <RuleCard rule={rule} matched={matched} />
-                </Animated.View>
-              );
-            })}
+            {rules.map((rule, i) => (
+              <Animated.View
+                key={rule.id}
+                entering={reduceMotion ? undefined : FadeInDown.delay(i * 60).duration(260)}
+              >
+                <RuleCard rule={rule} matched={result?.rule_id === rule.id} />
+              </Animated.View>
+            ))}
           </View>
         )}
       </ScrollView>
@@ -417,45 +401,33 @@ export default function SimulationScreen() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  scroll: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xxl * 2,
-  },
+  safe: { flex: 1 },
+  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
 
-  title: {
-    color: colors.text,
-    fontSize: font.screen,
-    fontFamily: type.uiBold,
-    marginBottom: spacing.xs,
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.ui,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
-  },
-
-  // ── Card ──────────────────────────────────────────────────────────────
-  visaCard: {
-    backgroundColor: colors.primary,
+  // VFC card
+  vfcCard: {
     borderRadius: radius.xl,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
+    overflow: "hidden",
     ...shadow.stack,
   },
-  visaTop: {
+  vfcCardSheen: {
+    position: "absolute",
+    top: -48,
+    right: -32,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  vfcTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.lg,
   },
-  visaChip: {
+  vfcChip: {
     width: 36,
     height: 28,
     borderRadius: 6,
@@ -465,263 +437,142 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
-  visaSimBadge: {
-    color: colors.onPrimary,
-    opacity: 0.45,
+  vfcSimBadge: {
+    color: "rgba(255,255,255,0.45)",
     fontSize: font.label,
     fontFamily: type.uiBold,
     letterSpacing: 2,
   },
-  visaNumber: {
-    color: colors.onPrimary,
+  vfcNumber: {
+    color: "rgba(255,255,255,0.9)",
     fontSize: font.title,
     fontFamily: type.mono,
     letterSpacing: 3,
     marginBottom: spacing.lg,
-    opacity: 0.9,
   },
-  visaBottom: {
+  vfcBottom: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
     marginBottom: spacing.md,
   },
-  visaFieldLabel: {
-    color: colors.onPrimary,
-    opacity: 0.45,
+  vfcFieldLabel: {
+    color: "rgba(255,255,255,0.45)",
     fontSize: 9,
     fontFamily: type.uiMedium,
     letterSpacing: 1.5,
     marginBottom: 2,
   },
-  visaName: {
-    color: colors.onPrimary,
+  vfcName: {
+    color: "#fff",
     fontSize: font.body,
     fontFamily: type.uiBold,
   },
-  visaDesc: {
-    color: colors.onPrimary,
-    opacity: 0.45,
+  vfcDesc: {
+    color: "rgba(255,255,255,0.45)",
     fontSize: 9,
     fontFamily: type.ui,
     textAlign: "right",
-    maxWidth: 160,
-    lineHeight: 13,
+    maxWidth: 140,
   },
 
-  // Funding chip (on card face)
-  fundingChip: {
+  // Funding badge
+  fundingBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
     borderWidth: 1,
-    borderRadius: 99,
+    borderRadius: radius.full,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
   },
   fundingDot: { width: 7, height: 7, borderRadius: 3.5 },
   fundingText: { fontSize: font.label, fontFamily: type.uiSemi },
 
-  // ── Debt Guard ────────────────────────────────────────────────────────
-  guardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-    gap: spacing.md,
-    ...shadow.soft,
-  },
-  guardIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  guardIconOn: { backgroundColor: colors.goodFill },
-  guardIconOff: { backgroundColor: colors.surfaceSubtle },
-  guardTitle: { color: colors.text, fontSize: font.body, fontFamily: type.uiSemi },
-  guardStatus: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.ui,
-    marginTop: 2,
-  },
-  switchHit: {
-    minWidth: hit.min,
-    minHeight: hit.min,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // ── Scenarios ─────────────────────────────────────────────────────────
+  // Section label
   sectionLabel: {
-    color: colors.muted,
     fontSize: font.label,
     fontFamily: type.uiMedium,
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginBottom: spacing.sm,
   },
-  scenarioRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
+
+  // Scenarios
+  scenarioRow: { flexDirection: "row", gap: spacing.sm },
   scenarioBtn: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    padding: spacing.md,
     minHeight: 64,
-    gap: 2,
     ...shadow.soft,
   },
-  scenarioBtnActive: {
-    borderColor: colors.good + "66",
-    backgroundColor: colors.goodFill,
-  },
-  scenarioBtnLabel: {
-    color: colors.text,
-    fontSize: font.label,
-    fontFamily: type.uiSemi,
-  },
-  scenarioBtnLabelActive: { color: colors.good },
-  scenarioBtnAmount: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.mono,
-  },
-  scenarioBtnAmountActive: {
-    color: colors.good,
-    fontFamily: type.monoSemi,
-  },
+  scenarioBtnLabel: { fontSize: font.body, fontFamily: type.uiSemi },
+  scenarioBtnAmount: { fontSize: font.label, fontFamily: type.mono, marginTop: 2 },
 
-  // ── Error ─────────────────────────────────────────────────────────────
+  // Error
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    backgroundColor: colors.warnFill,
     borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.warn + "44",
+    padding: spacing.md,
   },
-  errorText: { color: colors.warn, fontSize: font.body, fontFamily: type.ui, flex: 1 },
+  errorText: { fontSize: font.body, fontFamily: type.ui, flex: 1 },
 
-  // ── Result card ───────────────────────────────────────────────────────
+  // Result
   resultCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.md,
     ...shadow.soft,
   },
-  reasonText: {
-    color: colors.text,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    lineHeight: 22,
-  },
-  mccRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  mccText: {
-    color: colors.good,
-    fontSize: font.label,
-    fontFamily: type.uiSemi,
-  },
+  reasonText: { fontSize: font.body, fontFamily: type.uiMedium, lineHeight: 22 },
+  mccRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  mccText: { fontSize: font.label, fontFamily: type.uiSemi },
 
-  // Schedule
-  scheduleBlock: {
-    backgroundColor: colors.surfaceSubtle,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  scheduleTitle: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.uiMedium,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    marginBottom: spacing.xs,
-  },
-  scheduleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  scheduleNum: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.mono,
-    width: 16,
-    textAlign: "right",
-  },
-  scheduleDate: {
-    color: colors.text,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    flex: 1,
-  },
-  scheduleAmount: {
-    color: colors.warn,
-    fontSize: font.body,
-    fontFamily: type.monoSemi,
-  },
-  scheduleDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginVertical: spacing.xs,
-  },
-
-  // ── Rule cards ────────────────────────────────────────────────────────
+  // Rule card
   ruleCard: {
-    borderRadius: radius.xl,
-    padding: spacing.lg,
     borderWidth: 1,
-    // backgroundColor and borderColor are animated via useAnimatedStyle
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
   ruleMatchBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: colors.good,
-    borderRadius: 99,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
     alignSelf: "flex-start",
-    marginBottom: spacing.md,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    marginBottom: spacing.xs,
   },
-  ruleMatchText: {
-    color: colors.onPrimary,
-    fontSize: font.label,
-    fontFamily: type.uiBold,
-    letterSpacing: 0.4,
-  },
+  ruleMatchText: { color: "#fff", fontSize: font.label, fontFamily: type.uiBold },
   ruleRow: { flexDirection: "row", gap: spacing.sm },
-  ruleRowLabel: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.uiMedium,
-    width: 36,
-    paddingTop: 2,
+  ruleRowLabel: { fontSize: font.label, fontFamily: type.uiBold, width: 36, paddingTop: 1 },
+  ruleRowValue: { flex: 1, fontSize: font.label, fontFamily: type.uiMedium, lineHeight: 18 },
+
+  // Schedule
+  scheduleBlock: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: "hidden",
   },
-  ruleRowValue: {
-    color: colors.text,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    lineHeight: 22,
-    flex: 1,
+  scheduleTitle: { fontSize: font.label, fontFamily: type.uiBold, padding: spacing.md, paddingBottom: spacing.sm },
+  scheduleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
+  scheduleNum: { fontSize: font.label, fontFamily: type.uiMedium, width: 20 },
+  scheduleDate: { flex: 1, fontSize: font.label, fontFamily: type.uiMedium },
+  scheduleAmount: { fontSize: font.label, fontFamily: type.monoSemi },
 });

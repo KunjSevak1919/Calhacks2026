@@ -90,13 +90,16 @@ export interface Notification {
   priority: number;
 }
 
+export interface PaybackBreakdown {
+  interest: number;
+  months: number;
+}
+
 export interface PaybackResponse {
   balance: number;
   apr: number;
-  pay_in_full: number;
-  minimum: number;
-  months_minimum: number | null;
-  interest_if_minimum: number | null;
+  pay_in_full: PaybackBreakdown;
+  minimum_only: PaybackBreakdown;
 }
 
 export interface CoachResponse {
@@ -150,18 +153,45 @@ export interface VfcAuthorizeResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+const TIMEOUT_MS = 5000;
+
+/** fetch() wrapped with a 5-second AbortController so requests never hang. */
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() =>
+    clearTimeout(timer)
+  );
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${SERVER_URL}${path}`);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${SERVER_URL}${path}`);
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError"
+      ? "Can't reach the server"
+      : String(e);
+    throw new Error(msg);
+  }
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${SERVER_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${SERVER_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError"
+      ? "Can't reach the server"
+      : String(e);
+    throw new Error(msg);
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(

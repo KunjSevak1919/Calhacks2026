@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { StyleProp, ViewStyle } from "react-native";
+import React, { memo, useEffect, useState } from "react";
+import { StyleSheet, View, type ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -7,40 +7,70 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { colors, radius } from "../theme";
+import { useTheme } from "../ThemeContext";
+import { radius as radii } from "../theme";
 
-type Props = {
-  width?: number | `${number}%`;
-  height: number;
+export type SkeletonProps = {
+  width?: number | string;
+  height?: number;
+  borderRadius?: number;
+  /** @deprecated use borderRadius */
   r?: number;
-  style?: StyleProp<ViewStyle>;
+  style?: ViewStyle;
 };
 
-export default function Skeleton({ width = "100%", height, r = radius.md, style }: Props) {
-  const reduce = useReducedMotion();
-  const opacity = useSharedValue(0.7);
-  const anim = useAnimatedStyle(() => ({ opacity: opacity.value }));
+function Skeleton({ width = "100%", height = 16, borderRadius, r, style }: SkeletonProps) {
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const [containerWidth, setContainerWidth] = useState(0);
+  const translateX = useSharedValue(-100);
 
   useEffect(() => {
-    if (reduce) {
-      opacity.value = 0.7;
+    if (reduceMotion || containerWidth <= 0) {
+      translateX.value = 0;
       return;
     }
-    opacity.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
-  }, [reduce, opacity]);
+    translateX.value = withRepeat(
+      withTiming(containerWidth + 100, { duration: 900 }),
+      -1,
+      false
+    );
+  }, [containerWidth, reduceMotion, translateX]);
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
   return (
-    <Animated.View
+    <View
+      accessibilityLabel="Loading"
       style={[
         {
-          width,
+          width: width as any,
           height,
-          borderRadius: r,
-          backgroundColor: colors.surfaceSubtle,
+          borderRadius: borderRadius ?? r ?? radii.sm,
+          backgroundColor: colors.skeletonBase,
+          overflow: "hidden",
         },
-        anim,
         style,
       ]}
-    />
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
+      {!reduceMotion && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              width: 100,
+              backgroundColor: colors.skeletonHighlight,
+              opacity: 0.7,
+            },
+            shimmerStyle,
+          ]}
+        />
+      )}
+    </View>
   );
 }
+
+export default memo(Skeleton);

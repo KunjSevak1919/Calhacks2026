@@ -1,45 +1,61 @@
-import React from "react";
-import { View, StyleSheet } from "react-native";
-import { colors, radius } from "../theme";
+import React, { memo, useEffect, useState } from "react";
+import { View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useTheme } from "../ThemeContext";
 
-interface Props {
-  usage: number;
-  height?: number;
+export type UsageBarProps = {
+  /** 0–1. Above 0.30 the bar turns amber (warning). */
+  value?: number;
+  /** @deprecated use value */
+  usage?: number;
+  /** Override for use on dark card art where the accent is the card's own colour. */
+  barColor?: string;
   trackColor?: string;
-}
+  height?: number;
+  testID?: string;
+};
 
-export default function UsageBar({ usage, height = 6, trackColor }: Props) {
-  const pct = Math.min(Math.max(usage, 0), 1);
-  const fill = pct > 0.75 ? colors.warn : colors.good;
+function UsageBar({ value, usage, barColor, trackColor, height = 6, testID }: UsageBarProps) {
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const [width, setWidth] = useState(0);
+  const progress = useSharedValue(0);
+  const rawValue = value ?? usage ?? 0;
+  const clamped = Math.max(0, Math.min(1, rawValue));
+  const overThreshold = clamped > 0.3;
+  const fill = barColor ?? (overThreshold ? colors.warn : colors.accent);
+
+  useEffect(() => {
+    if (width <= 0) return;
+    progress.value = reduceMotion ? clamped : withTiming(clamped, { duration: 250 });
+  }, [width, clamped, progress, reduceMotion]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ width: progress.value * width }));
 
   return (
     <View
-      style={[
-        styles.track,
-        { height, backgroundColor: trackColor ?? colors.surfaceSubtle },
-      ]}
+      testID={testID}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ now: Math.round(clamped * 100), min: 0, max: 100 }}
+      accessibilityLabel={`Credit usage ${Math.round(clamped * 100)} percent${overThreshold ? ", above 30 percent" : ""}`}
+      style={{
+        height,
+        borderRadius: 3,
+        backgroundColor: trackColor ?? colors.track,
+        overflow: "hidden",
+      }}
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
     >
-      <View
-        style={[
-          styles.fill,
-          {
-            width: `${pct * 100}%` as `${number}%`,
-            backgroundColor: fill,
-            height,
-          },
-        ]}
+      <Animated.View
+        style={[{ height, borderRadius: 3, backgroundColor: fill }, animatedStyle]}
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  track: {
-    borderRadius: radius.sm,
-    overflow: "hidden",
-    width: "100%",
-  },
-  fill: {
-    borderRadius: radius.sm,
-  },
-});
+export default memo(UsageBar);

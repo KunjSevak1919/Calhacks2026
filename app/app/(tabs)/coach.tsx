@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
   FlatList,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,12 +20,13 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { api } from "../../api";
-import PressScale from "../../components/PressScale";
-import { lightTap } from "../../haptics";
-import { colors, spacing, radius, font, type, shadow, hit } from "../../theme";
+import { api, type PaybackResponse } from "../../api";
+import { useTheme } from "../../ThemeContext";
+import { font, type, spacing, radius, shadow, hit } from "../../theme";
+import StoreChip from "../../components/StoreChip";
+import PaybackComparison from "../../components/PaybackComparison";
 
-// ── Types ─────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Message {
   id: string;
@@ -34,50 +36,6 @@ interface Message {
   isTyping?: boolean;
 }
 
-// ── Typing indicator ──────────────────────────────────────────────────────
-
-function TypingDots() {
-  const reduce = useReducedMotion();
-
-  const dot0 = useSharedValue(0);
-  const dot1 = useSharedValue(0);
-  const dot2 = useSharedValue(0);
-
-  useEffect(() => {
-    if (reduce) return;
-    const pulse = (sv: typeof dot0, delay: number) => {
-      sv.value = withRepeat(
-        withSequence(
-          withTiming(0, { duration: delay }),
-          withTiming(-5, { duration: 220 }),
-          withTiming(0, { duration: 220 }),
-          withTiming(0, { duration: 500 }),
-        ),
-        -1,
-        false
-      );
-    };
-    pulse(dot0, 0);
-    pulse(dot1, 140);
-    pulse(dot2, 280);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduce]);
-
-  const s0 = useAnimatedStyle(() => ({ transform: [{ translateY: dot0.value }] }));
-  const s1 = useAnimatedStyle(() => ({ transform: [{ translateY: dot1.value }] }));
-  const s2 = useAnimatedStyle(() => ({ transform: [{ translateY: dot2.value }] }));
-
-  return (
-    <View style={styles.dotsRow}>
-      <Animated.View style={[styles.dot, s0]} />
-      <Animated.View style={[styles.dot, s1]} />
-      <Animated.View style={[styles.dot, s2]} />
-    </View>
-  );
-}
-
-// ── Suggestion chips ──────────────────────────────────────────────────────
-
 const SUGGESTIONS = [
   "Why did my score drop?",
   "How do late fees work?",
@@ -85,25 +43,67 @@ const SUGGESTIONS = [
   "Is my annual fee worth it?",
 ];
 
-// ── ID helpers ────────────────────────────────────────────────────────────
-
 let msgId = 0;
 const nextId = () => String(++msgId);
 const TYPING_ID = "__typing__";
 
-// ── Message bubble ────────────────────────────────────────────────────────
+// ── Typing indicator ──────────────────────────────────────────────────────────
+
+function TypingDots() {
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const d0 = useSharedValue(0);
+  const d1 = useSharedValue(0);
+  const d2 = useSharedValue(0);
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const pulse = (sv: typeof d0, delay: number) => {
+      sv.value = withRepeat(
+        withSequence(
+          withTiming(0, { duration: delay }),
+          withTiming(-5, { duration: 220 }),
+          withTiming(0, { duration: 220 }),
+          withTiming(0, { duration: 500 })
+        ),
+        -1,
+        false
+      );
+    };
+    pulse(d0, 0);
+    pulse(d1, 140);
+    pulse(d2, 280);
+  }, [reduceMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const s0 = useAnimatedStyle(() => ({ transform: [{ translateY: d0.value }] }));
+  const s1 = useAnimatedStyle(() => ({ transform: [{ translateY: d1.value }] }));
+  const s2 = useAnimatedStyle(() => ({ transform: [{ translateY: d2.value }] }));
+
+  return (
+    <View style={styles.dotsRow}>
+      <Animated.View style={[styles.dot, { backgroundColor: colors.coach }, s0]} />
+      <Animated.View style={[styles.dot, { backgroundColor: colors.coach }, s1]} />
+      <Animated.View style={[styles.dot, { backgroundColor: colors.coach }, s2]} />
+    </View>
+  );
+}
+
+// ── Message bubble ────────────────────────────────────────────────────────────
 
 function MessageBubble({ item }: { item: Message }) {
-  const reduce = useReducedMotion();
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const isOffline =
+    typeof item.source === "string" && item.source.startsWith("offline");
 
   if (item.isTyping) {
     return (
       <Animated.View
-        entering={reduce ? undefined : FadeInUp.duration(200)}
+        entering={reduceMotion ? undefined : FadeInUp.duration(200)}
         style={[styles.bubbleWrap, styles.bubbleWrapAssistant]}
       >
-        <View style={styles.assistantBubble}>
-          <View style={styles.avatar}>
+        <View style={[styles.assistantBubble, { backgroundColor: colors.surface }]}>
+          <View style={[styles.avatar, { backgroundColor: colors.coachFill }]}>
             <Ionicons name="sparkles" size={11} color={colors.coach} />
           </View>
           <TypingDots />
@@ -113,47 +113,51 @@ function MessageBubble({ item }: { item: Message }) {
   }
 
   const isUser = item.role === "user";
-  const isOffline =
-    typeof item.source === "string" && item.source.startsWith("offline");
 
   return (
     <Animated.View
-      entering={reduce ? undefined : FadeInUp.duration(220).springify()}
-      style={[
-        styles.bubbleWrap,
-        isUser ? styles.bubbleWrapUser : styles.bubbleWrapAssistant,
-      ]}
+      entering={reduceMotion ? undefined : FadeInUp.duration(220).springify()}
+      style={[styles.bubbleWrap, isUser ? styles.bubbleWrapUser : styles.bubbleWrapAssistant]}
     >
       {isUser ? (
-        <View style={styles.userBubble}>
-          <Text style={styles.userText}>{item.content}</Text>
+        <View style={[styles.userBubble, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.userText, { color: colors.onPrimary }]}>{item.content}</Text>
         </View>
       ) : (
-        <View style={styles.assistantBubble}>
-          <View style={styles.avatar}>
+        <View style={[styles.assistantBubble, { backgroundColor: colors.surface }]}>
+          <View style={[styles.avatar, { backgroundColor: colors.coachFill }]}>
             <Ionicons name="sparkles" size={11} color={colors.coach} />
           </View>
-          <Text style={styles.assistantText}>{item.content}</Text>
+          <Text style={[styles.assistantText, { color: colors.text }]}>{item.content}</Text>
         </View>
       )}
-
       {isOffline && (
         <View style={[styles.offlineChip, isUser && { alignSelf: "flex-end" }]}>
           <Ionicons name="warning" size={11} color={colors.warn} />
-          <Text style={styles.offlineText}>Offline · {item.source}</Text>
+          <Text style={[styles.offlineText, { color: colors.warn }]}>
+            Offline · {item.source}
+          </Text>
         </View>
       )}
     </Animated.View>
   );
 }
 
-// ── Coach screen ──────────────────────────────────────────────────────────
+// ── Coach screen ──────────────────────────────────────────────────────────────
 
 export default function CoachScreen() {
+  const { colors } = useTheme();
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [payback, setPayback] = useState<PaybackResponse | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
+
+  // Fetch payback data for contextual widget
+  useEffect(() => {
+    api.payback("aurum").then(setPayback).catch(() => {});
+  }, []);
 
   const scrollToEnd = () =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
@@ -161,7 +165,6 @@ export default function CoachScreen() {
   const send = async (question: string) => {
     const q = question.trim();
     if (!q || loading) return;
-    lightTap();
     setInput("");
 
     const history = messages
@@ -177,26 +180,19 @@ export default function CoachScreen() {
 
     try {
       const res = await api.coach(q, history);
-      const assistantMsg: Message = {
-        id: nextId(),
-        role: "assistant",
-        content: res.answer,
-        source: res.source,
-      };
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== TYPING_ID),
-        assistantMsg,
+        { id: nextId(), role: "assistant", content: res.answer, source: res.source },
       ]);
     } catch (e: unknown) {
-      const errMsg: Message = {
-        id: nextId(),
-        role: "assistant",
-        content: e instanceof Error ? e.message : "Couldn't reach the server.",
-        source: "offline (network error)",
-      };
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== TYPING_ID),
-        errMsg,
+        {
+          id: nextId(),
+          role: "assistant",
+          content: e instanceof Error ? e.message : "Couldn't reach the server.",
+          source: "offline (network error)",
+        },
       ]);
     } finally {
       setLoading(false);
@@ -205,49 +201,53 @@ export default function CoachScreen() {
   };
 
   const hasMessages = messages.length > 0;
+  const canSend = input.trim().length > 0 && !loading;
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerAvatar}>
-            <Ionicons name="sparkles" size={17} color={colors.coach} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Ask Coach</Text>
-            <Text style={styles.headerSub}>Powered by Claude</Text>
-          </View>
-          <Text style={styles.disclaimer}>Not financial advice.</Text>
-        </View>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={["top"]}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
 
-        {/* Empty state */}
+        {/* Empty state — shown before first message */}
         {!hasMessages ? (
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyAvatar}>
-              <Ionicons name="chatbubble-ellipses" size={30} color={colors.coach} />
-            </View>
-            <Text style={styles.emptyTitle}>I'm your credit coach</Text>
-            <Text style={styles.emptySub}>
-              Ask me anything about your cards, interest, or how to optimise your spending.
-            </Text>
-            <View style={styles.chips}>
-              {SUGGESTIONS.map((s) => (
-                <PressScale
-                  key={s}
-                  onPress={() => send(s)}
-                  disabled={loading}
-                  accessibilityLabel={s}
-                  style={styles.chip}
-                >
-                  <Text style={styles.chipText}>{s}</Text>
-                </PressScale>
-              ))}
-            </View>
-          </View>
+          <FlatList
+            data={[]}
+            renderItem={() => null}
+            ListHeaderComponent={
+              <View style={styles.emptyWrap}>
+                {/* Avatar */}
+                <View style={[styles.emptyAvatar, { backgroundColor: colors.coachFill }]}>
+                  <Ionicons name="chatbubble-ellipses" size={30} color={colors.coach} />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>I'm your credit coach</Text>
+                <Text style={[styles.emptySub, { color: colors.muted }]}>
+                  Ask me anything about your cards, interest, or how to optimise your spending.
+                </Text>
+
+                {/* Suggestion chips */}
+                <View style={styles.chips}>
+                  {SUGGESTIONS.map((s) => (
+                    <StoreChip
+                      key={s}
+                      label={s}
+                      onPress={() => send(s)}
+                      accessibilityLabel={s}
+                    />
+                  ))}
+                </View>
+
+                {/* Payback insight */}
+                {payback && (
+                  <View style={{ width: "100%" }}>
+                    <Text style={[styles.sectionLabel, { color: colors.muted }]}>
+                      Aurum Gold payback insight
+                    </Text>
+                    <PaybackComparison data={payback} />
+                  </View>
+                )}
+              </View>
+            }
+            keyboardShouldPersistTaps="handled"
+          />
         ) : (
           <FlatList
             ref={listRef}
@@ -256,13 +256,14 @@ export default function CoachScreen() {
             renderItem={({ item }) => <MessageBubble item={item} />}
             contentContainerStyle={styles.messageList}
             onContentSizeChange={scrollToEnd}
+            keyboardShouldPersistTaps="handled"
           />
         )}
 
-        {/* Input row */}
-        <View style={styles.inputRow}>
+        {/* Input bar */}
+        <View style={[styles.inputRow, { borderTopColor: colors.border, backgroundColor: colors.surface }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.surfaceSubtle, color: colors.text, borderColor: colors.border }]}
             value={input}
             onChangeText={setInput}
             placeholder="Ask a question…"
@@ -272,152 +273,80 @@ export default function CoachScreen() {
             blurOnSubmit
             onSubmitEditing={() => send(input)}
           />
-          <PressScale
+          <Pressable
             onPress={() => send(input)}
-            disabled={!input.trim() || loading}
+            disabled={!canSend}
             accessibilityLabel="Send"
-            style={[
+            style={({ pressed }) => [
               styles.sendBtn,
-              (!input.trim() || loading) && styles.sendDisabled,
+              { backgroundColor: canSend ? colors.coach : colors.surfaceSubtle },
+              pressed && canSend && { opacity: 0.85 },
             ]}
           >
-            <Ionicons name="arrow-up" size={17} color={colors.onPrimary} />
-          </PressScale>
+            <Ionicons name="arrow-up" size={17} color={canSend ? "#fff" : colors.muted} />
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-
-  // Header
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-    minHeight: hit.min + spacing.sm,
-  },
-  headerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.coachFill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: font.body,
-    fontFamily: type.uiBold,
-  },
-  headerSub: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.ui,
-    marginTop: 1,
-  },
-  disclaimer: {
-    color: colors.muted,
-    fontSize: font.label,
-    fontFamily: type.ui,
-    fontStyle: "italic",
-    flexShrink: 1,
-    textAlign: "right",
-  },
+  safe: { flex: 1 },
 
   // Empty state
   emptyWrap: {
-    flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxl,
     gap: spacing.lg,
   },
   emptyAvatar: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: colors.coachFill,
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: font.title,
-    fontFamily: type.uiBold,
-    textAlign: "center",
-  },
-  emptySub: {
-    color: colors.muted,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    textAlign: "center",
-    lineHeight: 22,
-  },
+  emptyTitle: { fontSize: font.title, fontFamily: type.uiBold, textAlign: "center" },
+  emptySub: { fontSize: font.body, fontFamily: type.ui, textAlign: "center", lineHeight: 22 },
   chips: { width: "100%", gap: spacing.sm },
-  chip: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minHeight: hit.min,
-    justifyContent: "center",
-    ...shadow.soft,
-  },
-  chipText: {
-    color: colors.coach,
-    fontSize: font.body,
+  sectionLabel: {
+    fontSize: font.label,
     fontFamily: type.uiMedium,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: spacing.sm,
+    alignSelf: "flex-start",
   },
 
   // Message list
   messageList: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.sm,
     gap: spacing.sm,
   },
 
-  // Bubble layout
+  // Bubbles
   bubbleWrap: { gap: 4 },
   bubbleWrapUser: { alignItems: "flex-end" },
   bubbleWrapAssistant: { alignItems: "flex-start" },
-
-  // User bubble — near-black fill, white text
   userBubble: {
     maxWidth: "82%",
-    backgroundColor: colors.primary,
     borderRadius: radius.xl,
     borderBottomRightRadius: 6,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     ...shadow.soft,
   },
-  userText: {
-    color: colors.onPrimary,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    lineHeight: 22,
-  },
-
-  // Assistant bubble — white surface, indigo avatar
+  userText: { fontSize: font.body, fontFamily: type.ui, lineHeight: 22 },
   assistantBubble: {
     maxWidth: "82%",
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.sm,
-    backgroundColor: colors.surface,
     borderRadius: radius.xl,
     borderBottomLeftRadius: 6,
     paddingVertical: spacing.md,
@@ -428,21 +357,12 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: colors.coachFill,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
     marginTop: 1,
   },
-  assistantText: {
-    color: colors.text,
-    fontSize: font.body,
-    fontFamily: type.ui,
-    lineHeight: 22,
-    flex: 1,
-  },
-
-  // Offline chip
+  assistantText: { fontSize: font.body, fontFamily: type.ui, lineHeight: 22, flex: 1 },
   offlineChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -450,60 +370,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     alignSelf: "flex-start",
   },
-  offlineText: {
-    color: colors.warn,
-    fontSize: font.label,
-    fontFamily: type.uiMedium,
-  },
+  offlineText: { fontSize: font.label, fontFamily: type.uiMedium },
 
   // Typing dots
-  dotsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 2,
-    paddingVertical: 4,
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: colors.coach,
-    opacity: 0.6,
-  },
+  dotsRow: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 2, paddingVertical: 4 },
+  dot: { width: 7, height: 7, borderRadius: 3.5, opacity: 0.6 },
 
-  // Input row
+  // Input bar
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
   },
   input: {
     flex: 1,
-    backgroundColor: colors.surfaceSubtle,
     borderRadius: radius.xl,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    color: colors.text,
     fontSize: font.body,
     fontFamily: type.ui,
     maxHeight: 120,
     minHeight: hit.min,
     borderWidth: 1,
-    borderColor: colors.border,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
+    width: hit.min,
+    height: hit.min,
+    borderRadius: hit.min / 2,
     alignItems: "center",
     justifyContent: "center",
   },
-  sendDisabled: { backgroundColor: colors.surfaceSubtle },
 });

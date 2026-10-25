@@ -1,39 +1,79 @@
+import { Pressable } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, font, type } from "../../theme";
+import { useTheme, type ThemeMode } from "../../ThemeContext";
+import { font, type } from "../../theme";
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
 
-function icon(focused: boolean, name: IoniconsName, outlineName: IoniconsName, color: string) {
+function tabIcon(
+  focused: boolean,
+  name: IoniconsName,
+  outlineName: IoniconsName,
+  activeColor: string,
+  inactiveColor: string
+) {
   return (
     <Ionicons
       name={focused ? name : outlineName}
       size={22}
-      color={focused ? color : colors.muted}
+      color={focused ? activeColor : inactiveColor}
     />
   );
 }
 
+const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
+  system: "light",
+  light: "dark",
+  dark: "system",
+};
+
+const THEME_ICON: Record<ThemeMode, IoniconsName> = {
+  system: "phone-portrait-outline",
+  light: "sunny-outline",
+  dark: "moon-outline",
+};
+
 export default function TabLayout() {
+  const { colors, themeMode, setTheme } = useTheme();
+
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
+          backgroundColor: colors.tabBarBackground,
+          borderTopColor: colors.tabBarBorder,
           borderTopWidth: 1,
           height: 72,
           paddingBottom: 12,
           paddingTop: 6,
         },
         tabBarActiveTintColor: colors.text,
-        tabBarInactiveTintColor: colors.muted,
+        tabBarInactiveTintColor: colors.tabInactive,
         tabBarLabelStyle: {
           fontSize: font.label,
           fontFamily: type.uiSemi,
           marginTop: 2,
         },
+        headerStyle: { backgroundColor: colors.tabBarBackground },
+        headerShadowVisible: false,
+        headerTintColor: colors.text,
+        headerTitleStyle: { fontFamily: type.uiBold, fontSize: font.title },
+        headerRight: () => (
+          <Pressable
+            onPress={() => setTheme(THEME_CYCLE[themeMode])}
+            hitSlop={12}
+            style={{ marginRight: 16 }}
+            accessibilityLabel={`Switch theme (current: ${themeMode})`}
+          >
+            <Ionicons
+              name={THEME_ICON[themeMode]}
+              size={22}
+              color={colors.muted}
+            />
+          </Pressable>
+        ),
       }}
     >
       <Tabs.Screen
@@ -41,7 +81,7 @@ export default function TabLayout() {
         options={{
           title: "Wallet",
           tabBarIcon: ({ focused }) =>
-            icon(focused, "wallet", "wallet-outline", colors.text),
+            tabIcon(focused, "wallet", "wallet-outline", colors.text, colors.tabInactive),
         }}
       />
       <Tabs.Screen
@@ -49,7 +89,7 @@ export default function TabLayout() {
         options={{
           title: "Pick Card",
           tabBarIcon: ({ focused }) =>
-            icon(focused, "card", "card-outline", colors.text),
+            tabIcon(focused, "card", "card-outline", colors.text, colors.tabInactive),
         }}
       />
       <Tabs.Screen
@@ -57,25 +97,25 @@ export default function TabLayout() {
         options={{
           title: "Alerts",
           tabBarIcon: ({ focused }) =>
-            icon(focused, "notifications", "notifications-outline", colors.text),
+            tabIcon(focused, "notifications", "notifications-outline", colors.text, colors.tabInactive),
         }}
       />
       <Tabs.Screen
         name="coach"
         options={{
           title: "Coach",
-          tabBarIcon: ({ focused }) =>
-            icon(focused, "chatbubble-ellipses", "chatbubble-ellipses-outline", colors.coach),
           tabBarActiveTintColor: colors.coach,
+          tabBarIcon: ({ focused }) =>
+            tabIcon(focused, "chatbubble-ellipses", "chatbubble-ellipses-outline", colors.coach, colors.tabInactive),
         }}
       />
       <Tabs.Screen
         name="visa"
         options={{
           title: "One Card",
-          tabBarIcon: ({ focused }) =>
-            icon(focused, "flash", "flash-outline", colors.warn),
           tabBarActiveTintColor: colors.warn,
+          tabBarIcon: ({ focused }) =>
+            tabIcon(focused, "flash", "flash-outline", colors.warn, colors.tabInactive),
         }}
       />
     </Tabs>

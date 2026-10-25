@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Notifications from "expo-notifications";
@@ -17,11 +18,14 @@ import {
 } from "@expo-google-fonts/ibm-plex-mono";
 import { api } from "../api";
 import { requestPermission, registerCategories } from "../notificationService";
-// Importing this module installs the foreground handler as a side-effect.
+// Importing this module installs the foreground handler as a side-effect (native only).
 import "../notificationService";
+import { ThemeProvider } from "../ThemeContext";
 
-// Keep the native splash visible until fonts are ready.
-SplashScreen.preventAutoHideAsync().catch(() => {});
+// SplashScreen APIs are no-ops / emit warnings on web — skip them entirely.
+if (Platform.OS !== "web") {
+  SplashScreen.preventAutoHideAsync().catch(() => {});
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -34,23 +38,40 @@ export default function RootLayout() {
     IBMPlexMono_700Bold,
   });
 
-  // Hide splash as soon as fonts are ready.
+  // On web, render immediately — the browser handles font loading via CSS and
+  // there is no splash screen to hide. fontsReady starts true on web.
+  // On native, wait for fonts but give up after 2 s so a slow CDN can't
+  // block the app indefinitely; system fonts are a fine fallback.
+  const [fontsReady, setFontsReady] = useState(Platform.OS === "web");
+
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
+    if (fontsLoaded) setFontsReady(true);
   }, [fontsLoaded]);
 
+  // 2-second hard deadline — native only (web starts as true already).
   useEffect(() => {
-    // 1. Ask for permission (no-op on web; shows system dialog on first launch).
+    if (Platform.OS === "web") return;
+    const t = setTimeout(() => setFontsReady(true), 2000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Hide the native splash in a finally so it always runs even if something
+  // throws. Never call this on web — SplashScreen is not available there.
+  useEffect(() => {
+    if (!fontsReady || Platform.OS === "web") return;
+    SplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
+
+  useEffect(() => {
+    // expo-notifications is not available on web — registering listeners there
+    // prints a console warning and does nothing useful, so skip entirely.
+    if (Platform.OS === "web") return;
+
+    // 1. Ask for permission (shows system dialog on first launch).
     requestPermission();
 
-    // 2. Pre-fetch notifications so we can register their categories up front.
-    //    Failures are silenced — the app works fine without categories.
-    api
-      .notifications()
-      .then(registerCategories)
-      .catch(() => {});
+    // 2. Pre-fetch notifications so we can register their action categories.
+    api.notifications().then(registerCategories).catch(() => {});
 
     // 3. Response listener: fires when the user taps a notification or one of
     //    its action buttons (approve / dismiss).
@@ -64,17 +85,13 @@ export default function RootLayout() {
 
         if (noteId) {
           try {
-            if (action === "approve") {
-              await api.approve(noteId);
-            } else if (action === "dismiss") {
-              await api.dismiss(noteId);
-            }
+            if (action === "approve") await api.approve(noteId);
+            else if (action === "dismiss") await api.dismiss(noteId);
           } catch {
             // Best-effort; the Alerts list will resync on focus.
           }
         }
 
-        // Always navigate to Alerts tab when the user interacts with a notification.
         router.push("/(tabs)/notifications");
       }
     );
@@ -82,12 +99,14 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  if (!fontsLoaded) return null;
+  // Block the very first render only on native while fonts are loading.
+  // On web fontsReady is already true so this never returns null.
+  if (!fontsReady) return null;
 
   return (
-    <>
-      <StatusBar style="dark" />
+    <ThemeProvider>
+      <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }} />
-    </>
+    </ThemeProvider>
   );
 }
